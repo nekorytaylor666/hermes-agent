@@ -14,6 +14,7 @@ import {
   AlertCircle,
   ChevronDown,
   Copy,
+  Heart,
   RefreshCw,
   Send,
   Square,
@@ -89,6 +90,12 @@ const STATE_TONE: Record<ConnectionState, string> = {
 const randId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
+// Mirror ui-tui/src/app/useMainApp.ts — same regex, same palette, same beat.
+// Web parity with the Ink TUI's GoodVibesHeart easter egg: a thank-you pulses
+// a heart next to the connection badge.
+const GOOD_VIBES_RE = /\b(good bot|thanks|thank you|thx|ty|ily|love you)\b/i;
+const HEART_COLORS = ["#ff5fa2", "#ff4d6d", "#ffbd38"];
+
 export default function ChatPage() {
   const gwRef = useRef<GatewayClient | null>(null);
   const slashRef = useRef<SlashPopoverHandle | null>(null);
@@ -107,6 +114,7 @@ export default function ChatPage() {
   const [connectError, setConnectError] = useState("");
   const [runtimeError, setRuntimeError] = useState("");
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [goodVibesTick, setGoodVibesTick] = useState(0);
 
   /* ---------------------------------------------------------------- */
   /*  Entry helpers                                                    */
@@ -378,6 +386,9 @@ export default function ChatPage() {
     if (!text || busy || !sessionId) return;
 
     setDraft("");
+    if (!text.startsWith("/") && GOOD_VIBES_RE.test(text)) {
+      setGoodVibesTick((v) => v + 1);
+    }
     await (text.startsWith("/") ? submitSlash(text) : submitUserMessage(text));
   }, [busy, draft, sessionId, submitSlash, submitUserMessage]);
 
@@ -404,13 +415,19 @@ export default function ChatPage() {
         : "message hermes… (Enter to send, Shift+Enter for newline, / for commands)";
 
   return (
-    <div className="flex flex-col gap-4 h-[calc(100vh-8rem)]">
+    // Opt out of the App root's `font-mondwest uppercase` — the dashboard
+    // uses pixel-display caps for chrome, but chat prose needs readable
+    // mixed-case. `font-courier` matches the terminal aesthetic without
+    // fighting the rest of the app's typography.
+    <div className="flex flex-col gap-4 h-[calc(100vh-8rem)] font-courier normal-case">
       <header className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2 flex-wrap">
           <Badge className={STATE_TONE[connState]}>
             <span className="mr-1 h-1.5 w-1.5 rounded-full bg-current inline-block" />
             {STATE_LABEL[connState]}
           </Badge>
+
+          <GoodVibesHeart tick={goodVibesTick} />
 
           <ModelBadge
             model={sessionInfo?.model}
@@ -496,7 +513,7 @@ export default function ChatPage() {
             }}
           />
 
-          <div className="flex items-end gap-2">
+          <div className="flex items-stretch overflow-hidden rounded-md border border-border bg-background/40 transition-colors focus-within:border-foreground/30 focus-within:bg-background/60 focus-within:ring-1 focus-within:ring-foreground/20">
             <textarea
               ref={textareaRef}
               value={draft}
@@ -514,14 +531,20 @@ export default function ChatPage() {
               }}
               placeholder={placeholder}
               rows={1}
-              className="flex-1 resize-none bg-background border border-border rounded-md px-3 py-2 text-sm font-sans focus:outline-none focus:ring-1 focus:ring-ring min-h-[38px] max-h-[200px]"
+              className="flex-1 resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none min-h-[40px] max-h-[200px] disabled:opacity-50"
               style={{ fieldSizing: "content" } as React.CSSProperties}
               disabled={connState !== "open"}
             />
 
-            <Button onClick={send} disabled={!canSend} size="sm">
+            <button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              aria-label="Send message"
+              className="shrink-0 w-11 flex items-center justify-center border-l border-border bg-foreground/90 text-background transition-colors cursor-pointer hover:bg-foreground active:bg-foreground/80 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-foreground/90"
+            >
               <Send className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
         </div>
       </Card>
@@ -541,6 +564,35 @@ export default function ChatPage() {
 /* ------------------------------------------------------------------ */
 /*  Subcomponents                                                      */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Port of ui-tui's GoodVibesHeart — a ♥ glows for 650ms in a random palette
+ * colour every time the user says something kind. Same regex, same beat, just
+ * rendered via a Lucide icon instead of an Ink Text node.
+ */
+function GoodVibesHeart({ tick }: { tick: number }) {
+  const [active, setActive] = useState(false);
+  const [color, setColor] = useState(HEART_COLORS[0]);
+
+  useEffect(() => {
+    if (tick <= 0) return;
+    setColor(HEART_COLORS[Math.floor(Math.random() * HEART_COLORS.length)]);
+    setActive(true);
+    const id = setTimeout(() => setActive(false), 650);
+    return () => clearTimeout(id);
+  }, [tick]);
+
+  return (
+    <Heart
+      aria-hidden
+      className={`h-4 w-4 transition-all duration-300 ${
+        active ? "scale-125 opacity-100" : "scale-75 opacity-0"
+      }`}
+      fill={active ? color : "none"}
+      style={{ color }}
+    />
+  );
+}
 
 function ModelBadge({
   model,
@@ -586,22 +638,41 @@ function EmptyState({
   connState: ConnectionState;
   cwd: string | undefined;
 }) {
+  const ready = connState === "open";
+
   return (
-    <div className="h-full flex items-center justify-center text-center">
-      <div className="max-w-sm space-y-2">
-        <div className="text-muted-foreground text-sm">
-          {connState === "open"
-            ? "Same hermes, same tools, same agent — over a socket."
-            : "Connecting to gateway…"}
+    <div className="h-full flex items-center justify-center text-center px-4">
+      <div className="max-w-md space-y-4">
+        <div className="text-base text-foreground/80">
+          {ready ? (
+            <>
+              hermes is ready
+              <span className="ml-0.5 inline-block w-1.5 h-4 bg-foreground/60 align-middle animate-pulse" />
+            </>
+          ) : (
+            "connecting to gateway…"
+          )}
         </div>
 
-        <div className="text-muted-foreground/80 text-xs">
-          Type <span className="font-mono">/</span> to browse slash commands.
+        <div className="text-xs text-muted-foreground/70 leading-relaxed">
+          same agent, same tools — served over a socket.
+        </div>
+
+        <div className="flex flex-wrap justify-center items-center gap-1.5 text-[0.7rem] text-muted-foreground/60 pt-1">
+          <span>type</span>
+          <kbd className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono">
+            /
+          </kbd>
+          <span>for slash commands,</span>
+          <kbd className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono">
+            Enter
+          </kbd>
+          <span>to send</span>
         </div>
 
         {cwd && (
-          <div className="font-mono text-[0.7rem] text-muted-foreground/60">
-            cwd: {cwd}
+          <div className="pt-2 font-mono text-[0.65rem] text-muted-foreground/40 truncate">
+            cwd · {cwd}
           </div>
         )}
       </div>
@@ -640,15 +711,17 @@ function MessageRow({ message }: { message: TextMessage }) {
         }`}
       >
         {message.text ? (
-          <Markdown content={message.text} />
+          <Markdown content={message.text} streaming={message.streaming} />
         ) : (
-          <span className="text-muted-foreground text-sm italic">
+          <span className="inline-flex items-center gap-1 text-muted-foreground text-sm italic">
             thinking…
+            {message.streaming && (
+              <span
+                aria-hidden
+                className="inline-block w-[0.5em] h-[1em] align-[-0.15em] bg-foreground/50 animate-pulse"
+              />
+            )}
           </span>
-        )}
-
-        {message.streaming && (
-          <span className="inline-block w-2 h-4 align-middle bg-foreground/50 ml-0.5 animate-pulse" />
         )}
       </div>
     </div>
