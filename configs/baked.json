@@ -1,0 +1,1111 @@
+{
+  "telegram": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/telegram_bot_api",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "drive": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/google_drive",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "docs": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/google_docs",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "gmail": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/gmail",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "calendar": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/google_calendar",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "onedrive": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/microsoft_onedrive",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "dropbox": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/dropbox",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "notion": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/notion",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "outlook": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/microsoft_outlook",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "slack": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/slack",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "youtube-analytics": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/youtube_analytics_api",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "vimeo": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/vimeo",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "sheets": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/google_sheets",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "webscraping": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/webscraping_ai",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "youtube-data": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/youtube_data_api",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "discord": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/discord_bot",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "whatsapp": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/whatsapp_business",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "github": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/github",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "openai": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/openai",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [
+      "openai-create-transcription"
+    ],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "hubspot": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/hubspot",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "linear": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/linear_app",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "jira": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/jira",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "twilio": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/twilio",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "sendgrid": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/sendgrid",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "todoist": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/todoist",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "frame": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/frame",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  },
+  "salesforce": {
+    "source_type": "mcp",
+    "source": "https://nginx-proxy-dev.higgsfield.xyz/mcp/salesforce_rest_api",
+    "base_url": null,
+    "auth_headers": [
+      [
+        "Authorization",
+        "env:HF_AUTH_HEADER"
+      ],
+      [
+        "alg",
+        "HS256"
+      ],
+      [
+        "Accept",
+        "application/json,text/event-stream"
+      ],
+      [
+        "Content-Type",
+        "application/json"
+      ],
+      [
+        "x-pd-tool-mode",
+        "tools-only"
+      ]
+    ],
+    "env_vars": {},
+    "cache_ttl": 3600,
+    "transport": "streamable",
+    "oauth": false,
+    "oauth_client_id": null,
+    "oauth_client_secret": null,
+    "oauth_client_name": "mcp2cli",
+    "oauth_scope": null,
+    "oauth_redirect_uri": null,
+    "oauth_flow": "auto",
+    "include": [],
+    "exclude": [],
+    "methods": [],
+    "description": ""
+  }
+}
