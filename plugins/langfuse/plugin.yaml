@@ -1,0 +1,26 @@
+name: langfuse
+version: 1.0.0
+description: "Langfuse tracing integration — sends session traces, LLM generations, and tool spans to Langfuse for observability."
+author: "hermes-agent"
+kind: standalone
+requires_env:
+  - name: LANGFUSE_PUBLIC_KEY
+    description: "Langfuse public key"
+    secret: false
+  - name: LANGFUSE_SECRET_KEY
+    description: "Langfuse secret key"
+    secret: true
+  - name: LANGFUSE_BASE_URL
+    description: "Langfuse API base URL (defaults to https://cloud.langfuse.com)"
+    secret: false
+hooks:
+  - on_session_start
+  - on_session_end
+  - on_session_finalize
+  - pre_llm_call
+  - pre_tool_call
+  - post_tool_call
+  - pre_api_request
+  - post_api_request
+pip_dependencies:
+  - "langfuse>=2.0.0"

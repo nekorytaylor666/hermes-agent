@@ -9347,6 +9347,7 @@ class AIAgent:
                             approx_input_tokens=approx_tokens,
                             request_char_count=total_chars,
                             max_tokens=self.max_tokens,
+                            messages=list(api_messages),
                         )
                     except Exception:
                         pass
@@ -10943,6 +10944,11 @@ class AIAgent:
                         usage=self._usage_summary_for_api_request_hook(response),
                         assistant_content_chars=len(_assistant_text),
                         assistant_tool_call_count=len(_assistant_tool_calls),
+                        assistant_text=_assistant_text,
+                        assistant_tool_calls=[
+                            {"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                            for tc in _assistant_tool_calls
+                        ] if _assistant_tool_calls else [],
                     )
                 except Exception:
                     pass
