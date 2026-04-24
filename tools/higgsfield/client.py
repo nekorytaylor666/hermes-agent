@@ -87,6 +87,18 @@ class HiggsfieldClient:
             f"/internal/claudesfield/input-images/{image_id}?result_type=web_optimized",
         )
 
+    def trigger_job_ip_check(self, job_id: str) -> None:
+        """POST /internal/claudesfield/jobs/{id}/ip-detect — fire the IP detector.
+
+        Fire-and-forget; the result lands on the job status endpoint under
+        ``ip_check_finished`` / ``ip_detected``. Mirrors Go's
+        ``Client.TriggerJobIPCheck``.
+        """
+        self._request(
+            "POST",
+            f"/internal/claudesfield/jobs/{job_id}/ip-detect",
+        )
+
     def get_balance(self) -> dict:
         """GET /internal/claudesfield/balance — used as a lightweight auth probe."""
         return self._request("GET", "/internal/claudesfield/balance")

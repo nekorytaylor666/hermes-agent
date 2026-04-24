@@ -35,6 +35,37 @@ def wait_for_job(
         time.sleep(max(0.5, interval))
 
 
+def wait_for_ip_check(
+    client: HiggsfieldClient,
+    job_id: str,
+    *,
+    interval: float = 5.0,
+    timeout: float = 120.0,
+) -> dict:
+    """Poll job status until ``ip_check_finished`` is True or timeout.
+
+    Mirrors Go's ``pollJobIPCheck``. Separate from ``wait_for_job`` because
+    the exit condition is different — we're waiting for the IP detector to
+    finish, not for the main job to reach a terminal status.
+    """
+    started = time.monotonic()
+    while True:
+        status = client.get_job_status(job_id)
+        logger.debug(
+            "poll ip_check job_id=%s status=%s ip_finished=%s ip_detected=%s",
+            job_id,
+            status.get("status", ""),
+            status.get("ip_check_finished", False),
+            status.get("ip_detected", False),
+        )
+        if bool(status.get("ip_check_finished")):
+            return status
+        elapsed = time.monotonic() - started
+        if elapsed >= timeout:
+            raise HiggsfieldTimeout(job_id, elapsed)
+        time.sleep(max(0.5, interval))
+
+
 def terminal_result(client: HiggsfieldClient, status_payload: dict) -> dict:
     """For a terminal job status, fetch the detail and extract a compact result."""
     job_id = status_payload.get("id", "")
