@@ -21,6 +21,24 @@ class HiggsfieldConfig:
     internal_api_key: str = ""
     timeout_seconds: float = 30.0
     environment: str = ""
+    inspiration_base_url: str = ""
+
+
+def derive_inspiration_url(cfg: HiggsfieldConfig) -> str:
+    """Return the inspiration RAG endpoint URL.
+
+    Mirrors ``api/inspiration.go``: use ``INSPIRATION_BASE_URL`` when set,
+    otherwise derive ``<scheme>://<host>/rag`` from ``FNF_BASE_URL``.
+    """
+    if cfg.inspiration_base_url:
+        return cfg.inspiration_base_url.rstrip("/")
+    # Strip any path from base_url, append /rag.
+    from urllib.parse import urlparse
+    parts = urlparse(cfg.base_url)
+    if not parts.scheme or not parts.netloc:
+        # Shouldn't happen — load_config validates FNF_BASE_URL — but fall back safely.
+        return f"{cfg.base_url.rstrip('/')}/rag"
+    return f"{parts.scheme}://{parts.netloc}/rag"
 
 
 def _parse_timeout(raw: str | None, default: float) -> float:
@@ -90,6 +108,7 @@ def load_config() -> HiggsfieldConfig:
         internal_api_key=internal_api_key,
         timeout_seconds=_parse_timeout(os.environ.get("FNF_TIMEOUT"), 30.0),
         environment=environment,
+        inspiration_base_url=os.environ.get("INSPIRATION_BASE_URL", ""),
     )
 
 

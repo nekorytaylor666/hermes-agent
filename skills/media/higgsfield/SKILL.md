@@ -362,7 +362,18 @@ higgsfield_generate({
 
 ## Design Inspiration Query
 
-> The inspiration search/download endpoint is **not yet exposed as a tool.** If a workflow calls for inspiration templates, tell the user this is pending a dedicated tool and fall back to the designer / style rules in the relevant reference file (`banana.md`, etc.). When the tool lands it will accept a `query` + `top_k` and return either JSON with template image URLs, or a local directory of downloaded template files for the Read tool.
+Search Higgsfield's design-template index for reference images before constructing NB2 prompts, then translate the template's visual DNA (color palette, lighting, layout, typography, mood) into art-director directives.
+
+```json
+higgsfield_inspiration({"query": "fitness product energetic dark ad", "top_k": 5})
+// → { query, top_k, results: [{url, keywords, ...}] }
+```
+
+- `query` — keyword string (required). Terse keywords work best.
+- `top_k` — default 5, cap 50.
+- `raw` — pass `true` to get the full response envelope when extra metadata is needed.
+
+Open a returned `url` with `vision_analyze` to read the template directly (no download / local-file round-trip required).
 
 ---
 

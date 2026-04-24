@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from .auth import HiggsfieldConfig, build_headers, load_config
+from .auth import HiggsfieldConfig, build_headers, derive_inspiration_url, load_config
 from .errors import HiggsfieldAPIError
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,33 @@ class HiggsfieldClient:
             "POST",
             f"/internal/claudesfield/jobs/{job_id}/ip-detect",
         )
+
+    def inspiration(self, query: str, top_k: int = 5) -> dict:
+        """POST <INSPIRATION_BASE_URL or derived>/rag — RAG search over design templates.
+
+        The inspiration endpoint lives on a sibling service from FNF (different
+        path, possibly different host), so this bypasses the client's base_url
+        via a full-URL request. Auth headers (dev user / folder / JWT) are
+        forwarded unchanged — same as Go's ``Client.Inspiration``.
+        """
+        endpoint = derive_inspiration_url(self.cfg)
+        headers = {"Content-Type": "application/json", **build_headers(self.cfg)}
+        try:
+            resp = self._http.post(
+                endpoint,
+                json={"query": query, "top_k": top_k},
+                headers=headers,
+            )
+        except httpx.TimeoutException as exc:
+            raise HiggsfieldAPIError(0, f"request timeout: {exc}", path=endpoint) from exc
+        except httpx.HTTPError as exc:
+            raise HiggsfieldAPIError(0, f"network error: {exc}", path=endpoint) from exc
+
+        if resp.status_code < 200 or resp.status_code >= 300:
+            raise HiggsfieldAPIError(resp.status_code, resp.text, path=endpoint)
+        if not resp.text:
+            return {}
+        return resp.json()
 
     def get_balance(self) -> dict:
         """GET /internal/claudesfield/balance — used as a lightweight auth probe."""

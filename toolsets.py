@@ -41,6 +41,7 @@ _HERMES_CORE_TOOLS = [
     # image_generate tool is intentionally excluded from core so the LLM
     # cannot fall back to it).
     "higgsfield_generate", "higgsfield_job_status", "higgsfield_ip_check",
+    "higgsfield_inspiration",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
@@ -233,7 +234,10 @@ TOOLSETS = {
 
     "higgsfield": {
         "description": "Higgsfield FNF image and video generation (native Python port of higgsfieldcli generate). Submits a job, polls to completion, returns the result URL. Supports all FNF models: imagegen_2_0, nano_banana_2, soul_v2, soul_cinematic, soul_cast, soul_location, seedream_v5_lite, seedream_v4_5, seedance_2_0, kling3_0, flux_2, openai_hazel, kling_omni_image, grok_image, z_image, image_auto, seedance1_5, kling2_6, cinematic_studio_2_5/3_0, minimax_hailuo, wan2_6/2_7, veo3, veo3_1, veo3_1_lite, grok_video.",
-        "tools": ["higgsfield_generate", "higgsfield_job_status", "higgsfield_ip_check"],
+        "tools": [
+            "higgsfield_generate", "higgsfield_job_status",
+            "higgsfield_ip_check", "higgsfield_inspiration",
+        ],
         "includes": []
     },
 

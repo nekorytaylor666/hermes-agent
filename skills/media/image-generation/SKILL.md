@@ -229,14 +229,13 @@ Skip Step 0 (inspiration) if **any** of the following are true:
 - "minimalist jazz concert poster" → `"jazz concert minimalist poster typography"`
 - "cozy winter skincare carousel" → `"winter skincare warm pastel lifestyle"`
 
-### 2. Run the inspiration query with download
+### 2. Run the inspiration query
 
-> The inspiration search/download flow is **not yet exposed as a tool.** If the user requests inspiration-driven generation, tell them the `inspiration` endpoint isn't wired up in this runtime yet. Proceed without the inspiration template — fall back to the designer/style rules in `banana.md` and skip the "Design Inspiration" step.
+```json
+higgsfield_inspiration({"query": "<derived query string>", "top_k": 5})
+```
 
-When the tool lands it will return JSON with:
-
-- `directory` — path to the temp folder containing downloaded files
-- `files` — list of successfully downloaded filenames
+Returns `{query, top_k, results: [{url, keywords, ...}]}`. Open the most promising `url` with `vision_analyze` to read the template directly — no download step needed. If no `vision_analyze` is available in the session, skip the inspiration step and fall back to the designer/style rules in the relevant reference file (`banana.md`, etc.).
 
 ### 3. View all returned templates
 
