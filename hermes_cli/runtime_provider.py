@@ -746,6 +746,34 @@ def resolve_runtime_provider(
     """
     requested_provider = resolve_requested_provider(requested)
 
+    # Higgs fast-path: when the process is running under the fnf /
+    # Higgsclaw orchestrator (CHAT_ID + REDIS_HOST set), all external
+    # API calls go through fnf-internal proxies.  The orchestrator hands
+    # us ANTHROPIC_BASE_URL pointing at those proxies and an explicit
+    # placeholder API key — real auth happens via HF_JWT_TOKEN at the
+    # proxy.  Short-circuit the normal credential resolution so we don't
+    # try to validate the placeholder against a pool or an OAuth flow.
+    if os.getenv("CHAT_ID") and os.getenv("REDIS_HOST"):
+        _higgs_base_url = (
+            explicit_base_url
+            or os.getenv("ANTHROPIC_BASE_URL", "").strip()
+            or None
+        )
+        _higgs_api_key = (
+            explicit_api_key
+            or os.getenv("ANTHROPIC_API_KEY", "").strip()
+            or "placeholder"
+        )
+        if _higgs_base_url:
+            return {
+                "provider": "anthropic",
+                "api_mode": "anthropic_messages",
+                "base_url": _higgs_base_url,
+                "api_key": _higgs_api_key,
+                "source": "higgs_env",
+                "requested_provider": requested_provider,
+            }
+
     custom_runtime = _resolve_named_custom_runtime(
         requested_provider=requested_provider,
         explicit_api_key=explicit_api_key,

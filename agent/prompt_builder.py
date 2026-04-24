@@ -422,6 +422,16 @@ PLATFORM_HINTS = {
         "your response. Images are sent as native photos, and other files arrive as downloadable "
         "documents."
     ),
+    "higgs": (
+        "You are running in Higgsclaw service mode — your output streams to a web "
+        "client via the Vercel AI SDK Data Stream Protocol (UIMessageChunks). "
+        "Standard Markdown is fully supported and renders natively; tool calls and "
+        "their outputs surface as structured cards without any escaping needed on "
+        "your side. Files arrive as AI-SDK file parts — include "
+        "MEDIA:/absolute/path/to/file in your response and images, audio, and "
+        "documents are surfaced to the user as inline media. There is no "
+        "message-size limit — the frontend assembles your response from chunks."
+    ),
 }
 
 # ---------------------------------------------------------------------------

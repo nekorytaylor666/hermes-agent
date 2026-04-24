@@ -2017,6 +2017,7 @@ class GatewayRunner:
                        "WEIXIN_ALLOWED_USERS",
                        "BLUEBUBBLES_ALLOWED_USERS",
                        "QQ_ALLOWED_USERS",
+                       "HIGGS_ALLOWED_USERS",
                        "GATEWAY_ALLOWED_USERS")
         )
         _allow_all = os.getenv("GATEWAY_ALLOW_ALL_USERS", "").lower() in ("true", "1", "yes") or any(
@@ -2031,7 +2032,8 @@ class GatewayRunner:
                        "WECOM_CALLBACK_ALLOW_ALL_USERS",
                        "WEIXIN_ALLOW_ALL_USERS",
                        "BLUEBUBBLES_ALLOW_ALL_USERS",
-                       "QQ_ALLOW_ALL_USERS")
+                       "QQ_ALLOW_ALL_USERS",
+                       "HIGGS_ALLOW_ALL_USERS")
         )
         if not _any_allowlist and not _allow_all:
             logger.warning(
@@ -2993,6 +2995,13 @@ class GatewayRunner:
                 return None
             return QQAdapter(config)
 
+        elif platform == Platform.HIGGS:
+            from gateway.platforms.higgs import HiggsAdapter, check_higgs_requirements
+            if not check_higgs_requirements():
+                logger.warning("Higgs: redis.asyncio not installed. Run: pip install 'hermes-agent[higgs]'")
+                return None
+            return HiggsAdapter(config)
+
         return None
 
     def _is_user_authorized(self, source: SessionSource) -> bool:
@@ -3035,6 +3044,7 @@ class GatewayRunner:
             Platform.WEIXIN: "WEIXIN_ALLOWED_USERS",
             Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
             Platform.QQBOT: "QQ_ALLOWED_USERS",
+            Platform.HIGGS: "HIGGS_ALLOWED_USERS",
         }
         platform_group_env_map = {
             Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
@@ -3056,6 +3066,12 @@ class GatewayRunner:
             Platform.WEIXIN: "WEIXIN_ALLOW_ALL_USERS",
             Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOW_ALL_USERS",
             Platform.QQBOT: "QQ_ALLOW_ALL_USERS",
+            # Higgs default-permissive: fnf's proxy layer already authorized
+            # the JWT before the XADD; adapter-level allowlist is
+            # defense-in-depth.  Operators can tighten by setting
+            # HIGGS_ALLOWED_USERS=<csv-of-HF_DEV_USER_IDs> and
+            # HIGGS_ALLOW_ALL_USERS=false.
+            Platform.HIGGS: "HIGGS_ALLOW_ALL_USERS",
         }
 
         # Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
@@ -3187,6 +3203,7 @@ class GatewayRunner:
                 Platform.WEIXIN:   "WEIXIN_ALLOWED_USERS",
                 Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
                 Platform.QQBOT:    "QQ_ALLOWED_USERS",
+                Platform.HIGGS:    "HIGGS_ALLOWED_USERS",
             }
             if os.getenv(platform_env_map.get(platform, ""), "").strip():
                 return "ignore"
@@ -9170,8 +9187,11 @@ class GatewayRunner:
                         cursor=_effective_cursor,
                         buffer_only=_buffer_only,
                     )
-                    _stream_consumer = GatewayStreamConsumer(
-                        adapter=_adapter,
+                    # Adapter-controlled factory so platforms whose wire
+                    # format isn't "edit a message in place" (e.g. Higgs'
+                    # per-delta AI-SDK chunk publisher) can swap in a
+                    # different drain loop without special-casing here.
+                    _stream_consumer = _adapter.make_stream_consumer(
                         chat_id=source.chat_id,
                         config=_consumer_cfg,
                         metadata=_thread_metadata,
@@ -9768,17 +9788,9 @@ class GatewayRunner:
             _want_interim_consumer = _want_interim_messages
             if _want_stream_deltas or _want_interim_consumer:
                 try:
-                    from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
+                    from gateway.stream_consumer import StreamConsumerConfig
                     _adapter = self.adapters.get(source.platform)
                     if _adapter:
-                        # Platforms that don't support editing sent messages
-                        # (e.g. QQ, WeChat) should skip streaming entirely —
-                        # without edit support, the consumer sends a partial
-                        # first message that can never be updated, resulting in
-                        # duplicate messages (partial + final).
-                        _adapter_supports_edit = getattr(_adapter, "SUPPORTS_MESSAGE_EDITING", True)
-                        if not _adapter_supports_edit:
-                            raise RuntimeError("skip streaming for non-editable platform")
                         _effective_cursor = _scfg.cursor
                         # Some Matrix clients render the streaming cursor
                         # as a visible tofu/white-box artifact.  Keep
@@ -9793,12 +9805,18 @@ class GatewayRunner:
                             cursor=_effective_cursor,
                             buffer_only=_buffer_only,
                         )
-                        _stream_consumer = GatewayStreamConsumer(
-                            adapter=_adapter,
+                        # Adapter-controlled factory: returns None for
+                        # append-only / edit-less platforms to skip streaming,
+                        # or a custom consumer (e.g. Higgs' per-delta XADD
+                        # publisher) otherwise.  Handles the legacy
+                        # "non-editable platform → skip" path internally.
+                        _stream_consumer = _adapter.make_stream_consumer(
                             chat_id=source.chat_id,
                             config=_consumer_cfg,
                             metadata={"thread_id": _progress_thread_id} if _progress_thread_id else None,
                         )
+                        if _stream_consumer is None:
+                            raise RuntimeError("adapter opted out of streaming")
                         if _want_stream_deltas:
                             def _stream_delta_cb(text: str) -> None:
                                 if _run_still_current():
