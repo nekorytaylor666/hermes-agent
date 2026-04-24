@@ -41,7 +41,7 @@ _HERMES_CORE_TOOLS = [
     # image_generate tool is intentionally excluded from core so the LLM
     # cannot fall back to it).
     "higgsfield_generate", "higgsfield_job_status", "higgsfield_ip_check",
-    "higgsfield_inspiration", "higgsfield_element",
+    "higgsfield_inspiration", "higgsfield_element", "higgsfield_soul_id",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
@@ -237,7 +237,7 @@ TOOLSETS = {
         "tools": [
             "higgsfield_generate", "higgsfield_job_status",
             "higgsfield_ip_check", "higgsfield_inspiration",
-            "higgsfield_element",
+            "higgsfield_element", "higgsfield_soul_id",
         ],
         "includes": []
     },

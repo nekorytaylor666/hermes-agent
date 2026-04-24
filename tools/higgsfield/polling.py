@@ -35,6 +35,38 @@ def wait_for_job(
         time.sleep(max(0.5, interval))
 
 
+SOUL_ID_SUCCESS_STATUSES = {"completed", "showcase_completed"}
+SOUL_ID_FAIL_STATUSES = {"failed"}
+
+
+def wait_for_soul_id(
+    client: HiggsfieldClient,
+    reference_id: str,
+    *,
+    interval: float = 5.0,
+    timeout: float = 1800.0,
+) -> dict:
+    """Poll a Soul ID custom reference until training succeeds or fails.
+
+    Mirrors Go's ``pollSoulIDTraining``: 5 s interval, 30 min default timeout.
+    Returns the reference object. Raises ``HiggsfieldTimeout`` on timeout.
+    """
+    started = time.monotonic()
+    while True:
+        ref = client.get_custom_reference(reference_id)
+        status = ref.get("status", "")
+        logger.debug(
+            "poll soul_id ref=%s status=%s",
+            reference_id, status,
+        )
+        if status in SOUL_ID_SUCCESS_STATUSES or status in SOUL_ID_FAIL_STATUSES:
+            return ref
+        elapsed = time.monotonic() - started
+        if elapsed >= timeout:
+            raise HiggsfieldTimeout(reference_id, elapsed)
+        time.sleep(max(0.5, interval))
+
+
 def wait_for_ip_check(
     client: HiggsfieldClient,
     job_id: str,

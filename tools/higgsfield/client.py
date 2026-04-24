@@ -99,6 +99,115 @@ class HiggsfieldClient:
             f"/internal/claudesfield/jobs/{job_id}/ip-detect",
         )
 
+    # ------------------------------------------------------------------
+    # Upload pipeline (shared by soul-id create and any future upload tool)
+    # ------------------------------------------------------------------
+
+    def create_media_batch(self, mimetypes: list[str], source: str = "user_upload") -> list[dict]:
+        """POST /internal/claudesfield/media/batch — pre-register N media inputs.
+
+        Returns one ``{id, url, upload_url, content_type}`` per requested mimetype.
+        """
+        resp = self._request(
+            "POST",
+            "/internal/claudesfield/media/batch",
+            json={"mimetypes": list(mimetypes), "source": source},
+        )
+        if not isinstance(resp, list):
+            raise HiggsfieldAPIError(0, f"expected list response, got {type(resp).__name__}")
+        return resp
+
+    def upload_to_presigned(
+        self,
+        upload_url: str,
+        body: bytes,
+        content_type: str,
+    ) -> None:
+        """PUT bytes to a presigned S3 URL. Bypasses the FNF base URL + auth headers.
+
+        Mirrors Go's ``Client.UploadToPresignedURL`` — uses a short-lived
+        client with no auth/timeout so big files don't hit FNF_TIMEOUT.
+        """
+        try:
+            with httpx.Client(timeout=None) as http:
+                resp = http.put(
+                    upload_url,
+                    content=body,
+                    headers={"Content-Type": content_type},
+                )
+        except httpx.HTTPError as exc:
+            raise HiggsfieldAPIError(0, f"upload error: {exc}", path=upload_url) from exc
+        if resp.status_code < 200 or resp.status_code >= 300:
+            raise HiggsfieldAPIError(resp.status_code, resp.text, path=upload_url)
+
+    def confirm_upload(self, media_id: str, filename: str, force_ip_check: bool = False) -> dict:
+        """POST /internal/claudesfield/media/{id}/upload — finalize an uploaded media."""
+        return self._request(
+            "POST",
+            f"/internal/claudesfield/media/{media_id}/upload",
+            json={
+                "filename": filename,
+                "force_nsfw_check": True,
+                "force_ip_check": bool(force_ip_check),
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Soul ID / custom references
+    # ------------------------------------------------------------------
+
+    def create_soul_v2_reference(self, name: str, input_images: list[dict]) -> dict:
+        """POST /internal/claudesfield/custom-references/soul-v2 — start training."""
+        body: dict[str, Any] = {"input_images": list(input_images)}
+        if name:
+            body["name"] = name
+        return self._request(
+            "POST",
+            "/internal/claudesfield/custom-references/soul-v2",
+            json=body,
+        )
+
+    def get_custom_reference(self, reference_id: str) -> dict:
+        """GET /internal/claudesfield/custom-references/soul-v2/{id}"""
+        return self._request(
+            "GET",
+            f"/internal/claudesfield/custom-references/soul-v2/{reference_id}",
+        )
+
+    def list_custom_references(self, params: dict) -> dict:
+        """GET /internal/claudesfield/custom-references/soul-v2 — list with filters.
+
+        ``params`` keys: type, statuses (list[str]), search, size, cursor.
+        """
+        from urllib.parse import urlencode
+
+        pairs: list[tuple[str, str]] = []
+        for status in params.get("statuses") or []:
+            if status:
+                pairs.append(("status", str(status)))
+        ref_type = params.get("type")
+        if ref_type:
+            pairs.append(("type", str(ref_type)))
+        if params.get("search"):
+            pairs.append(("search", str(params["search"])))
+        size = params.get("size")
+        if size:
+            pairs.append(("size", str(int(size))))
+        if params.get("cursor"):
+            pairs.append(("cursor", str(params["cursor"])))
+
+        path = "/internal/claudesfield/custom-references/soul-v2"
+        if pairs:
+            path += "?" + urlencode(pairs)
+        return self._request("GET", path)
+
+    def delete_custom_reference(self, reference_id: str) -> None:
+        """DELETE /internal/claudesfield/custom-references/soul-v2/{id}"""
+        self._request(
+            "DELETE",
+            f"/internal/claudesfield/custom-references/soul-v2/{reference_id}",
+        )
+
     def list_elements(self, params: dict) -> dict:
         """GET /internal/claudesfield/reference-elements — list with filters.
 
