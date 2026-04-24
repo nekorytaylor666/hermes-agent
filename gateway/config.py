@@ -67,6 +67,7 @@ class Platform(Enum):
     WEIXIN = "weixin"
     BLUEBUBBLES = "bluebubbles"
     QQBOT = "qqbot"
+    HIGGS = "higgs"
 
 
 @dataclass
@@ -313,6 +314,12 @@ class GatewayConfig:
                 connected.append(platform)
             # QQBot uses extra dict for app credentials
             elif platform == Platform.QQBOT and config.extra.get("app_id") and config.extra.get("client_secret"):
+                connected.append(platform)
+            # Higgs uses REDIS_HOST (+ optional CHAT_ID) — no platform-side token.
+            # Enabled is driven off either config.extra["host"] or env REDIS_HOST.
+            elif platform == Platform.HIGGS and (
+                config.extra.get("host") or os.getenv("REDIS_HOST")
+            ):
                 connected.append(platform)
             # DingTalk uses client_id/client_secret from config.extra or env vars
             elif platform == Platform.DINGTALK and (
@@ -1270,6 +1277,52 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
                 chat_id=qq_home,
                 name=os.getenv("QQBOT_HOME_CHANNEL_NAME") or os.getenv(qq_home_name_env, "Home"),
             )
+
+    # Higgs (Redis streams + Vercel AI SDK chunks).  Auth is by per-chat JWT
+    # handled at the fnf proxy layer — no platform-side token.  Enable by
+    # setting REDIS_HOST (and typically CHAT_ID + STREAM_PREFIX in the
+    # Higgsclaw-orchestrator deployment model).
+    higgs_enable_env = os.getenv("HIGGS_ENABLED", "").strip().lower()
+    higgs_redis_host = os.getenv("REDIS_HOST", "").strip()
+    if higgs_enable_env in ("1", "true", "yes", "on") or (
+        higgs_redis_host and os.getenv("CHAT_ID", "").strip()
+    ):
+        if Platform.HIGGS not in config.platforms:
+            config.platforms[Platform.HIGGS] = PlatformConfig()
+        config.platforms[Platform.HIGGS].enabled = True
+        extra = config.platforms[Platform.HIGGS].extra
+        if higgs_redis_host:
+            extra["host"] = higgs_redis_host
+        redis_port = os.getenv("REDIS_PORT", "").strip()
+        if redis_port:
+            try:
+                extra["port"] = int(redis_port)
+            except ValueError:
+                pass
+        redis_db = os.getenv("REDIS_DB", "").strip()
+        if redis_db:
+            try:
+                extra["db"] = int(redis_db)
+            except ValueError:
+                pass
+        redis_ssl = os.getenv("REDIS_SSL", "").strip().lower()
+        if redis_ssl in ("1", "true", "yes", "on"):
+            extra["ssl"] = True
+        redis_password = os.getenv("REDIS_PASSWORD", "").strip()
+        if redis_password:
+            extra["password"] = redis_password
+        stream_prefix = os.getenv("STREAM_PREFIX", "").strip()
+        if stream_prefix:
+            extra["stream_prefix"] = stream_prefix
+        chat_id = os.getenv("CHAT_ID", "").strip()
+        if chat_id:
+            extra["chat_id"] = chat_id
+        user_id = os.getenv("HF_DEV_USER_ID", "").strip()
+        if user_id:
+            extra["user_id"] = user_id
+        folder_id = os.getenv("HF_FOLDER_ID", "").strip()
+        if folder_id:
+            extra["folder_id"] = folder_id
 
     # Session settings
     idle_minutes = os.getenv("SESSION_IDLE_MINUTES")

@@ -2724,6 +2724,46 @@ _PLATFORMS = [
              "help": "OpenID to deliver cron results and notifications to."},
         ],
     },
+    {
+        "key": "higgs",
+        "label": "Higgs (Redis streams + AI SDK)",
+        "emoji": "⇢",
+        "token_var": "REDIS_HOST",
+        "setup_instructions": [
+            "Higgs is the fnf-compatible transport: agent reads from Redis",
+            "streams and publishes Vercel AI SDK UIMessageChunks.  Use this",
+            "when running Hermes as a drop-in replacement for",
+            "fnf-higgsclaw-agent inside the fnf orchestrator.",
+            "",
+            "1. Set REDIS_HOST (+ REDIS_PORT / REDIS_DB / REDIS_PASSWORD",
+            "   / REDIS_SSL as needed) to your fnf Redis instance.",
+            "2. Set CHAT_ID to the UUID of the chat this pod serves.",
+            "3. Set STREAM_PREFIX to match the fnf consumer's prefix",
+            "   (default 'higgs').",
+            "4. For proxy-auth: set ANTHROPIC_BASE_URL to the fnf-internal",
+            "   proxy URL, ANTHROPIC_API_KEY to 'placeholder', and",
+            "   HF_JWT_TOKEN to the chat JWT.",
+        ],
+        "vars": [
+            {"name": "REDIS_HOST", "prompt": "Redis host", "password": False,
+             "help": "Hostname / IP of the fnf Redis instance."},
+            {"name": "REDIS_PORT", "prompt": "Redis port (default 6379)", "password": False,
+             "help": "Leave empty for 6379."},
+            {"name": "REDIS_DB", "prompt": "Redis DB (default 0)", "password": False,
+             "help": "Leave empty for 0."},
+            {"name": "REDIS_PASSWORD", "prompt": "Redis password (empty if none)", "password": True,
+             "help": "Optional — Redis AUTH password."},
+            {"name": "REDIS_SSL", "prompt": "Enable Redis SSL? (true/false)", "password": False,
+             "help": "Set true for TLS-only endpoints."},
+            {"name": "STREAM_PREFIX", "prompt": "Stream prefix (default 'higgs')", "password": False,
+             "help": "Namespace for input/output/notify streams — must match the fnf consumer."},
+            {"name": "CHAT_ID", "prompt": "Chat UUID for this pod", "password": False,
+             "help": "The chat_id this container serves (one chat per pod, per the Higgsclaw Job model)."},
+            {"name": "HIGGS_ALLOWED_USERS", "prompt": "Allowed HF_DEV_USER_IDs (comma-separated, empty = allow-all)", "password": False,
+             "is_allowlist": True,
+             "help": "Defense-in-depth.  fnf already authorized the JWT before XADD; leave empty unless tightening."},
+        ],
+    },
 ]
 
 
@@ -2747,6 +2787,13 @@ def _platform_status(platform: dict) -> str:
         if val and account:
             return "configured"
         if val or account:
+            return "partially configured"
+        return "not configured"
+    if platform.get("key") == "higgs":
+        chat_id = get_env_value("CHAT_ID")
+        if val and chat_id:
+            return "configured"
+        if val or chat_id:
             return "partially configured"
         return "not configured"
     if platform.get("key") == "email":
