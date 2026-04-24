@@ -25,10 +25,104 @@ function getToken(): string | null {
     : null;
 }
 
+type RawFrame =
+  | { kind: "boundary"; ts: number; label: string }
+  | { kind: "frame"; ts: number; parsed: unknown; raw: string };
+
 export default function ChatPage() {
   const chatId = useMemo(() => crypto.randomUUID(), []);
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<"messages" | "raw">("messages");
+  const [rawFrames, setRawFrames] = useState<RawFrame[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Custom fetch that tees the SSE body: one branch flows to the AI SDK,
+  // the other gets parsed here into `rawFrames` for the debug tab.
+  const debugFetch = useMemo<typeof fetch>(
+    () => async (input, init) => {
+      const t0 = performance.now();
+      setRawFrames((prev) => [
+        ...prev,
+        {
+          kind: "boundary",
+          ts: 0,
+          label: `→ ${init?.method ?? "GET"} ${
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : (input as Request).url
+          }`,
+        },
+      ]);
+      const res = await fetch(input, init);
+      if (!res.body) return res;
+      const [a, b] = res.body.tee();
+      void (async () => {
+        const reader = b.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let sep: number;
+            while ((sep = buf.indexOf("\n\n")) !== -1) {
+              const frame = buf.slice(0, sep);
+              buf = buf.slice(sep + 2);
+              if (!frame) continue;
+              for (const line of frame.split("\n")) {
+                if (!line) continue;
+                const ts = performance.now() - t0;
+                if (line.startsWith("data: ")) {
+                  const json = line.slice(6);
+                  let parsed: unknown = json;
+                  try {
+                    parsed = JSON.parse(json);
+                  } catch {
+                    // leave as raw string
+                  }
+                  setRawFrames((prev) => [
+                    ...prev,
+                    { kind: "frame", ts, parsed, raw: line },
+                  ]);
+                } else {
+                  setRawFrames((prev) => [
+                    ...prev,
+                    { kind: "frame", ts, parsed: null, raw: line },
+                  ]);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          setRawFrames((prev) => [
+            ...prev,
+            {
+              kind: "boundary",
+              ts: performance.now() - t0,
+              label: `× tee reader error: ${String(err)}`,
+            },
+          ]);
+        }
+        setRawFrames((prev) => [
+          ...prev,
+          {
+            kind: "boundary",
+            ts: performance.now() - t0,
+            label: "← stream closed",
+          },
+        ]);
+      })();
+      return new Response(a, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      });
+    },
+    [],
+  );
 
   const transport = useMemo(
     () =>
@@ -38,8 +132,9 @@ export default function ChatPage() {
           const t = getToken();
           return t ? { Authorization: `Bearer ${t}` } : {};
         },
+        fetch: debugFetch,
       }),
-    [],
+    [debugFetch],
   );
 
   const { messages, sendMessage, status, stop, error } = useChat({
@@ -73,35 +168,69 @@ export default function ChatPage() {
         </span>
       </div>
 
+      <nav
+        role="tablist"
+        className="flex border border-current/20 border-b-0 text-[0.7rem] font-mono"
+      >
+        {(["messages", "raw"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "px-3 py-1.5 border-r border-current/20 cursor-pointer",
+              tab === t ? "bg-current/10" : "opacity-60 hover:opacity-100",
+            )}
+          >
+            {t === "messages"
+              ? `messages (${messages.length})`
+              : `raw stream (${rawFrames.filter((f) => f.kind === "frame").length})`}
+          </button>
+        ))}
+        {tab === "raw" && (
+          <button
+            type="button"
+            onClick={() => setRawFrames([])}
+            className="ml-auto px-3 py-1.5 border-l border-current/20 opacity-60 hover:opacity-100 cursor-pointer"
+          >
+            clear
+          </button>
+        )}
+      </nav>
+
       <div
         ref={scrollRef}
         className={cn(
           "flex-1 overflow-y-auto",
           "border border-current/20 bg-background-base/50",
           "px-3 sm:px-5 py-4",
-          "space-y-5",
+          tab === "messages" ? "space-y-5" : "space-y-1",
         )}
       >
-        {messages.length === 0 && !isStreaming && (
-          <div className="opacity-50 text-sm">
-            No messages yet. Send one below.
-          </div>
-        )}
-
-        {messages.map((m) => (
-          <MessageBlock key={m.id} message={m} />
-        ))}
-
-        {isStreaming && messages.at(-1)?.role !== "assistant" && (
-          <div className="opacity-60 text-xs tracking-[0.15em] animate-pulse">
-            · · ·
-          </div>
-        )}
-
-        {error && (
-          <div className="text-destructive text-sm border border-destructive/40 p-2">
-            {String(error.message ?? error)}
-          </div>
+        {tab === "messages" ? (
+          <>
+            {messages.length === 0 && !isStreaming && (
+              <div className="opacity-50 text-sm">
+                No messages yet. Send one below.
+              </div>
+            )}
+            {messages.map((m) => (
+              <MessageBlock key={m.id} message={m} />
+            ))}
+            {isStreaming && messages.at(-1)?.role !== "assistant" && (
+              <div className="opacity-60 text-xs tracking-[0.15em] animate-pulse">
+                · · ·
+              </div>
+            )}
+            {error && (
+              <div className="text-destructive text-sm border border-destructive/40 p-2">
+                {String(error.message ?? error)}
+              </div>
+            )}
+          </>
+        ) : (
+          <RawStreamView frames={rawFrames} />
         )}
       </div>
 
@@ -133,6 +262,81 @@ export default function ChatPage() {
       </form>
     </div>
   );
+}
+
+function RawStreamView({ frames }: { frames: RawFrame[] }) {
+  if (frames.length === 0) {
+    return (
+      <div className="opacity-50 text-xs italic">
+        No frames yet. Send a message and they'll appear here as they arrive
+        from /api/chat.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-0.5 font-mono text-[0.7rem]">
+      {frames.map((f, i) => {
+        if (f.kind === "boundary") {
+          return (
+            <div
+              key={i}
+              className="border-t border-current/30 my-2 py-1 uppercase tracking-[0.15em] opacity-70"
+            >
+              [{f.ts.toFixed(1).padStart(7)}ms] {f.label}
+            </div>
+          );
+        }
+        const parsedType =
+          f.parsed && typeof f.parsed === "object" && "type" in f.parsed
+            ? String((f.parsed as { type: unknown }).type)
+            : "—";
+        return (
+          <details key={i} className="border border-current/15">
+            <summary className="cursor-pointer px-2 py-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 bg-current/[.03]">
+              <span className="opacity-50">
+                #{i} [{f.ts.toFixed(1).padStart(7)}ms]
+              </span>
+              <code className="font-semibold">{parsedType}</code>
+              <span className="opacity-60 truncate max-w-full">
+                {f.parsed === null
+                  ? f.raw
+                  : typeof f.parsed === "string"
+                    ? f.parsed.slice(0, 120)
+                    : summarize(f.parsed)}
+              </span>
+            </summary>
+            <div className="px-2 py-1 border-t border-current/10">
+              <pre className="whitespace-pre-wrap break-words leading-snug overflow-x-auto">
+                {f.parsed === null
+                  ? f.raw
+                  : safeStringify(f.parsed)}
+              </pre>
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+// Tiny one-line summary for a parsed part — surfaces ids / deltas so the
+// collapsed row is immediately informative.
+function summarize(v: unknown): string {
+  if (!v || typeof v !== "object") return String(v);
+  const o = v as Record<string, unknown>;
+  const bits: string[] = [];
+  if (typeof o.id === "string") bits.push(`id=${o.id.slice(0, 8)}`);
+  if (typeof o.messageId === "string")
+    bits.push(`messageId=${o.messageId.slice(0, 8)}`);
+  if (typeof o.toolCallId === "string")
+    bits.push(`toolCallId=${o.toolCallId.slice(0, 8)}`);
+  if (typeof o.toolName === "string") bits.push(`toolName=${o.toolName}`);
+  if (typeof o.delta === "string")
+    bits.push(
+      `delta=${JSON.stringify(o.delta.slice(0, 40))}${o.delta.length > 40 ? "…" : ""}`,
+    );
+  if (typeof o.errorText === "string") bits.push(`err=${o.errorText}`);
+  return bits.join(" ");
 }
 
 function MessageBlock({ message }: { message: UIMessage }) {
