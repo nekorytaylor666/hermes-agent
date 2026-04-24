@@ -56,9 +56,54 @@ TARGETS=(
   "skills/autonomous-ai-agents/codex"
   "skills/autonomous-ai-agents/opencode"
 
-  # Entire optional-skills tree — nothing in it supports Higgsfield or marketing
-  "optional-skills"
+  # optional-skills tree — prune everything except the two keepers below
+  # (honcho memory skill and meme-generation), which are handled by the
+  # per-child fan-out after this loop.
 )
+
+# Keepers under optional-skills/ (explicitly preserved):
+#   - optional-skills/autonomous-ai-agents/honcho  (Honcho memory)
+#   - optional-skills/creative/meme-generation     (meme generator)
+#
+# Fan out optional-skills/: delete every child except those two keepers, and
+# delete every sibling inside the two parent categories so only the keeper
+# subdirs remain.
+OPTIONAL_KEEP_TOP=("autonomous-ai-agents" "creative")
+KEEP_IN_AUTONOMOUS="honcho"
+KEEP_IN_CREATIVE="meme-generation"
+
+if [[ -d optional-skills ]]; then
+  # 1) Remove every top-level entry in optional-skills/ that is not a keeper parent.
+  while IFS= read -r entry; do
+    name="$(basename "$entry")"
+    keep=0
+    for k in "${OPTIONAL_KEEP_TOP[@]}"; do
+      [[ "$name" == "$k" ]] && keep=1 && break
+    done
+    if (( ! keep )); then
+      TARGETS+=("optional-skills/$name")
+    fi
+  done < <(find optional-skills -mindepth 1 -maxdepth 1)
+
+  # 2) Inside the two keeper parents, remove every sibling except the keeper child.
+  if [[ -d optional-skills/autonomous-ai-agents ]]; then
+    while IFS= read -r entry; do
+      name="$(basename "$entry")"
+      if [[ "$name" != "$KEEP_IN_AUTONOMOUS" && "$name" != "DESCRIPTION.md" ]]; then
+        TARGETS+=("optional-skills/autonomous-ai-agents/$name")
+      fi
+    done < <(find optional-skills/autonomous-ai-agents -mindepth 1 -maxdepth 1)
+  fi
+
+  if [[ -d optional-skills/creative ]]; then
+    while IFS= read -r entry; do
+      name="$(basename "$entry")"
+      if [[ "$name" != "$KEEP_IN_CREATIVE" && "$name" != "DESCRIPTION.md" ]]; then
+        TARGETS+=("optional-skills/creative/$name")
+      fi
+    done < <(find optional-skills/creative -mindepth 1 -maxdepth 1)
+  fi
+fi
 
 removed=0
 missing=0
