@@ -51,7 +51,12 @@ from gateway.status import get_running_pid, read_runtime_status
 try:
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.responses import (
+        FileResponse,
+        HTMLResponse,
+        JSONResponse,
+        StreamingResponse,
+    )
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
 except ImportError:
@@ -182,6 +187,14 @@ async def host_header_middleware(request: Request, call_next):
 
     See GHSA-ppp5-vxwm-4cf7.
     """
+    # CORS preflight OPTIONS requests carry no auth and no meaningful Host
+    # validation context — let them through so CORSMiddleware can answer
+    # with the correct Access-Control-* headers.  Skipping this check for
+    # OPTIONS doesn't widen the attack surface: the preflight response is
+    # a cacheable set of policy headers, never application data.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     # Store the bound host on app.state so this middleware can read it —
     # set by start_server() at listen time.
     bound_host = getattr(app.state, "bound_host", None)
@@ -203,6 +216,13 @@ async def host_header_middleware(request: Request, call_next):
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Require the session token on all /api/ routes except the public list."""
+    # CORS preflights never include the Authorization header.  Rejecting
+    # them here would short-circuit CORSMiddleware and produce a 401 with
+    # no Access-Control-Allow-Origin — the exact symptom of every "CORS
+    # policy blocked" error in the browser.  Pass through and let the
+    # CORS middleware respond.
+    if request.method == "OPTIONS":
+        return await call_next(request)
     path = request.url.path
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not path.startswith("/api/plugins/"):
         auth = request.headers.get("authorization", "")
@@ -1925,6 +1945,241 @@ async def delete_session_endpoint(session_id: str):
         return {"ok": True}
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Vercel AI SDK chat endpoint
+# Emits the UIMessage Data Stream Protocol v1 consumed by `useChat` in
+# `@ai-sdk/react` v5+.  Mirrors the gateway's streaming contract (Telegram
+# et al.) but over SSE instead of platform-native edits.
+# ---------------------------------------------------------------------------
+
+
+class _ChatBody(BaseModel):
+    id: Optional[str] = None
+    messages: List[Dict[str, Any]] = []
+    # Allow clients to override model on a per-request basis (optional).
+    model: Optional[str] = None
+    trigger: Optional[str] = None
+
+
+@app.post("/api/chat")
+async def chat_endpoint(body: _ChatBody, request: Request):
+    import uuid
+    from hermes_cli.web_chat import (
+        UIMessageStreamWriter,
+        SENTINEL,
+        extract_latest_user_text,
+        sse_format,
+        ui_messages_to_hermes_history,
+        register_pending_approval,
+        drop_pending_approvals_for_session,
+    )
+    from run_agent import AIAgent
+    from tools.approval import (
+        register_gateway_notify,
+        unregister_gateway_notify,
+        set_current_session_key,
+        reset_current_session_key,
+    )
+
+    user_text = extract_latest_user_text(body.messages)
+    if not user_text:
+        raise HTTPException(status_code=400, detail="No user message text")
+
+    # Split: history = all prior messages; current turn = the last user msg.
+    prior_messages = list(body.messages)
+    if prior_messages and prior_messages[-1].get("role") == "user":
+        prior_messages = prior_messages[:-1]
+    history = ui_messages_to_hermes_history(prior_messages)
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    writer = UIMessageStreamWriter(queue, loop)
+
+    cfg = load_config() or {}
+    model_cfg = cfg.get("model") or {}
+    if isinstance(model_cfg, str):
+        cfg_model = model_cfg
+    elif isinstance(model_cfg, dict):
+        cfg_model = model_cfg.get("default") or model_cfg.get("name") or ""
+    else:
+        cfg_model = ""
+    model = body.model or cfg_model or "anthropic/claude-sonnet-4.6"
+    session_id = body.id or None
+
+    # Resolve provider credentials the same way the CLI does — without this
+    # the agent tries to hit api.anthropic.com with no key and a bare model
+    # name and gets a 404.
+    from hermes_cli.runtime_provider import resolve_runtime_provider
+
+    async def _stream_error(msg: str):
+        # Return a StreamingResponse that emits just the AI SDK error
+        # envelope so the frontend shows it inline.
+        async def _one():
+            writer.start()
+            writer.on_error(msg)
+            writer.finish()
+            while True:
+                part = await queue.get()
+                if part is SENTINEL:
+                    break
+                yield sse_format(part)
+        return StreamingResponse(
+            _one(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "x-vercel-ai-ui-message-stream": "v1",
+            },
+        )
+
+    try:
+        runtime = resolve_runtime_provider()
+    except Exception as exc:
+        return await _stream_error(
+            f"Provider not configured: {exc}. "
+            f"Run `hermes setup` or set an API key in the Keys tab."
+        )
+
+    # Session key used by the approval module to route dangerous-command
+    # prompts back to this specific HTTP request.  Namespaced so we can't
+    # collide with Telegram/Discord/etc. session keys.
+    effective_session_id = session_id or str(uuid.uuid4())
+    approval_session_key = f"web:{effective_session_id}"
+
+    agent = AIAgent(
+        model=model,
+        api_key=runtime.get("api_key"),
+        base_url=runtime.get("base_url"),
+        provider=runtime.get("provider"),
+        api_mode=runtime.get("api_mode"),
+        acp_command=runtime.get("command"),
+        acp_args=runtime.get("args"),
+        credential_pool=runtime.get("credential_pool"),
+        session_id=effective_session_id,
+        gateway_session_key=approval_session_key,
+        platform="web",
+        stream_delta_callback=writer.on_text_delta,
+        reasoning_callback=writer.on_reasoning_delta,
+        tool_start_callback=writer.on_tool_start,
+        tool_complete_callback=writer.on_tool_complete,
+        status_callback=writer.on_status,
+        quiet_mode=True,
+        persist_session=True,
+    )
+
+    def _approval_notify(approval_data: dict) -> None:
+        """Fires on the agent's worker thread whenever a dangerous command
+        is intercepted.  Emits a data-approval part to the UI and registers
+        the approval_id so /api/chat/approve can resolve it."""
+        approval_id = str(uuid.uuid4())
+        register_pending_approval(approval_id, approval_session_key)
+        writer.on_approval_request(
+            approval_id,
+            command=approval_data.get("command", ""),
+            description=approval_data.get("description", "dangerous command"),
+            pattern_keys=approval_data.get("pattern_keys") or [],
+        )
+
+    async def event_source():
+        writer.start()
+
+        def _run_agent_with_approval_ctx():
+            # These contextvar / registry bindings are thread-local, so they
+            # must be set inside the executor thread that runs the agent —
+            # not on the asyncio loop thread that scheduled it.
+            token = set_current_session_key(approval_session_key)
+            register_gateway_notify(approval_session_key, _approval_notify)
+            try:
+                return agent.run_conversation(
+                    user_text,
+                    conversation_history=history,
+                )
+            finally:
+                unregister_gateway_notify(approval_session_key)
+                reset_current_session_key(token)
+                drop_pending_approvals_for_session(approval_session_key)
+
+        # Run the (synchronous) agent loop in a worker thread.  Its
+        # callbacks hop back onto this loop via run_coroutine_threadsafe.
+        agent_future = loop.run_in_executor(None, _run_agent_with_approval_ctx)
+
+        # When the agent returns (success or error), flush the final
+        # finish markers and push the sentinel so the drain loop exits.
+        def _on_done(fut):
+            exc = fut.exception()
+            if exc is not None:
+                writer.on_error(str(exc))
+                _log.exception("Agent run failed", exc_info=exc)
+            writer.finish()
+
+        agent_future.add_done_callback(_on_done)
+
+        # Watchdog: if the client disconnects mid-stream, flip the agent's
+        # interrupt flag so the loop exits promptly (same mechanism the
+        # Telegram adapter uses).
+        async def _disconnect_watch():
+            try:
+                while not agent_future.done():
+                    if await request.is_disconnected():
+                        agent._interrupt_requested = True  # noqa: SLF001
+                        return
+                    await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+        watch = asyncio.create_task(_disconnect_watch())
+
+        try:
+            while True:
+                part = await queue.get()
+                if part is SENTINEL:
+                    break
+                yield sse_format(part)
+        finally:
+            watch.cancel()
+
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # disable proxy buffering
+        "x-vercel-ai-ui-message-stream": "v1",
+    }
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers=headers,
+    )
+
+
+class _ApprovalDecision(BaseModel):
+    approvalId: str
+    choice: str  # "once" | "session" | "always" | "deny"
+
+
+@app.post("/api/chat/approve")
+async def chat_approve(body: _ApprovalDecision):
+    """Resolve a pending dangerous-command approval from the web UI.
+
+    Mirrors the Telegram callback-query path (``resolve_gateway_approval``)
+    but routed by ``approvalId`` since HTTP requests don't carry the
+    underlying session key.
+    """
+    from hermes_cli.web_chat import pop_pending_approval
+    from tools.approval import resolve_gateway_approval
+
+    if body.choice not in ("once", "session", "always", "deny"):
+        raise HTTPException(status_code=400, detail="Invalid choice")
+
+    session_key = pop_pending_approval(body.approvalId)
+    if not session_key:
+        raise HTTPException(status_code=404, detail="Approval not pending")
+
+    resolved = resolve_gateway_approval(session_key, body.choice)
+    return {"ok": True, "resolved": resolved, "choice": body.choice}
 
 
 # ---------------------------------------------------------------------------
