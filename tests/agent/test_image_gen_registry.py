@@ -74,12 +74,12 @@ class TestGetActiveProvider:
         active = image_gen_registry.get_active_provider()
         assert active is not None and active.name == "solo"
 
-    def test_fal_preferred_on_multi_without_config(self, tmp_path, monkeypatch):
+    def test_higgsfield_preferred_on_multi_without_config(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        image_gen_registry.register_provider(_FakeProvider("fal"))
+        image_gen_registry.register_provider(_FakeProvider("higgsfield"))
         image_gen_registry.register_provider(_FakeProvider("openai"))
         active = image_gen_registry.get_active_provider()
-        assert active is not None and active.name == "fal"
+        assert active is not None and active.name == "higgsfield"
 
     def test_explicit_config_wins(self, tmp_path, monkeypatch):
         import yaml

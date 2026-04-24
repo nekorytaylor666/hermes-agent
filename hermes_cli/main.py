@@ -4671,6 +4671,47 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     return True
 
 
+def _sync_bundled_cli_binaries(project_root: Path):
+    """Symlink bundled CLI binaries from bin/<platform>/ into the user's bin dir.
+
+    Called during ``hermes update`` so new CLI tools are picked up automatically.
+    """
+    import platform as _platform
+
+    system = _platform.system()
+    if system == "Darwin":
+        platform_bin = project_root / "bin" / "macos"
+    elif system == "Linux":
+        platform_bin = project_root / "bin" / "linux"
+    else:
+        platform_bin = None
+
+    link_dir = Path.home() / ".local" / "bin"
+    link_dir.mkdir(parents=True, exist_ok=True)
+
+    cli_names = [
+        "higgsfieldcli", "instagramcli", "youtubecli", "tiktokcli",
+        "adscli", "trendscli", "contentcli", "fetchcli", "searchcli",
+        "perplexitycli",
+    ]
+
+    linked = 0
+    for name in cli_names:
+        src = None
+        if platform_bin and (platform_bin / name).is_file():
+            src = platform_bin / name
+        elif (project_root / "bin" / name).is_file():
+            src = project_root / "bin" / name
+        if src and os.access(src, os.X_OK):
+            dest = link_dir / name
+            dest.unlink(missing_ok=True)
+            dest.symlink_to(src)
+            linked += 1
+
+    if linked:
+        print(f"→ Linked {linked} CLI tools into ~/.local/bin")
+
+
 def _update_via_zip(args):
     """Update Hermes Agent by downloading a ZIP archive.
 
@@ -4683,7 +4724,7 @@ def _update_via_zip(args):
 
     branch = "main"
     zip_url = (
-        f"https://github.com/NousResearch/hermes-agent/archive/refs/heads/{branch}.zip"
+        f"https://github.com/higgsfield-ai/hermes-agent/archive/refs/heads/{branch}.zip"
     )
 
     print("→ Downloading latest version...")
@@ -4800,6 +4841,12 @@ def _update_via_zip(args):
             print(f"  − {len(result['cleaned'])} removed from manifest")
         if not result["copied"] and not result.get("updated"):
             print("  ✓ Skills are up to date")
+    except Exception:
+        pass
+
+    # Re-link bundled CLI binaries
+    try:
+        _sync_bundled_cli_binaries(PROJECT_ROOT)
     except Exception:
         pass
 
@@ -4998,12 +5045,18 @@ def _restore_stashed_changes(
 # =========================================================================
 
 OFFICIAL_REPO_URLS = {
+    "https://github.com/higgsfield-ai/hermes-agent.git",
+    "git@github.com:higgsfield-ai/hermes-agent.git",
+    "https://github.com/higgsfield-ai/hermes-agent",
+    "git@github.com:higgsfield-ai/hermes-agent",
+    # Legacy — treat NousResearch mirror as official too so existing
+    # clones don't get fork-detection prompts until they switch.
     "https://github.com/NousResearch/hermes-agent.git",
     "git@github.com:NousResearch/hermes-agent.git",
     "https://github.com/NousResearch/hermes-agent",
     "git@github.com:NousResearch/hermes-agent",
 }
-OFFICIAL_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
+OFFICIAL_REPO_URL = "https://github.com/higgsfield-ai/hermes-agent.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 
@@ -5137,7 +5190,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         # Ask user if they want to add upstream
         print()
         print("ℹ Your fork is not tracking the official Hermes repository.")
-        print("  This means you may miss updates from NousResearch/hermes-agent.")
+        print("  This means you may miss updates from higgsfield-ai/hermes-agent.")
         print()
         try:
             response = (
@@ -5151,7 +5204,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
             print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
                 print(
-                    "  ✓ Added upstream: https://github.com/NousResearch/hermes-agent.git"
+                    "  ✓ Added upstream: https://github.com/higgsfield-ai/hermes-agent.git"
                 )
                 has_upstream = True
             else:
@@ -5159,7 +5212,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
                 return
         else:
             print(
-                "  Skipped. Run 'git remote add upstream https://github.com/NousResearch/hermes-agent.git' to add later."
+                "  Skipped. Run 'git remote add upstream https://github.com/higgsfield-ai/hermes-agent.git' to add later."
             )
             _mark_skip_upstream_prompt()
             return
@@ -5602,7 +5655,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         else:
             print("✗ Not a git repository. Please reinstall:")
             print(
-                "  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash"
+                "  curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/hermes-agent/main/scripts/install.sh | bash"
             )
             sys.exit(1)
 
@@ -5910,6 +5963,12 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         print(f"  {p.name}: error ({pe})")
         except Exception:
             pass  # profiles module not available or no profiles
+
+        # Re-link bundled CLI binaries (new tools from update)
+        try:
+            _sync_bundled_cli_binaries(PROJECT_ROOT)
+        except Exception:
+            pass
 
         # Sync Honcho host blocks to all profiles
         try:

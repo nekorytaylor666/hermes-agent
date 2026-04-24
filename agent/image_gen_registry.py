@@ -12,8 +12,7 @@ The active provider is chosen by ``image_gen.provider`` in ``config.yaml``.
 If unset, :func:`get_active_provider` applies fallback logic:
 
 1. If exactly one provider is registered, use it.
-2. Otherwise if a provider named ``fal`` is registered, use it (legacy
-   default — matches pre-plugin behavior).
+2. Otherwise if a provider named ``higgsfield`` is registered, use it.
 3. Otherwise return ``None`` (the tool surfaces a helpful error pointing
    the user at ``hermes tools``).
 """
@@ -107,9 +106,9 @@ def get_active_provider() -> Optional[ImageGenProvider]:
     if len(snapshot) == 1:
         return next(iter(snapshot.values()))
 
-    # Fallback: prefer legacy FAL for backward compat
-    if "fal" in snapshot:
-        return snapshot["fal"]
+    # Fallback: prefer Higgsfield, then any remaining provider
+    if "higgsfield" in snapshot:
+        return snapshot["higgsfield"]
 
     return None
 
