@@ -84,6 +84,15 @@ if [ -d "$INSTALL_DIR/skills" ]; then
     python3 "$INSTALL_DIR/tools/skills_sync.py"
 fi
 
+# Higgs mode: when CHAT_ID + REDIS_HOST are set and no explicit command
+# was passed, start the gateway in Higgs-only mode.  Matches the
+# Higgsclaw-orchestrator's contract: one pod, one chat, exits on
+# ONE_SHOT=true or IDLE_TIMEOUT_SECONDS.
+if [ $# -eq 0 ] && [ -n "$CHAT_ID" ] && [ -n "$REDIS_HOST" ]; then
+    echo "Higgs mode: starting gateway for chat_id=$CHAT_ID"
+    exec hermes gateway start
+fi
+
 # Final exec: two supported invocation patterns.
 #
 #   docker run <image>                 -> exec `hermes` with no args (legacy default)
