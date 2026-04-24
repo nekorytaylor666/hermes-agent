@@ -42,6 +42,7 @@ _HERMES_CORE_TOOLS = [
     # cannot fall back to it).
     "higgsfield_generate", "higgsfield_job_status", "higgsfield_ip_check",
     "higgsfield_inspiration", "higgsfield_element", "higgsfield_soul_id",
+    "higgsfield_balance",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
@@ -238,6 +239,7 @@ TOOLSETS = {
             "higgsfield_generate", "higgsfield_job_status",
             "higgsfield_ip_check", "higgsfield_inspiration",
             "higgsfield_element", "higgsfield_soul_id",
+            "higgsfield_balance",
         ],
         "includes": []
     },
