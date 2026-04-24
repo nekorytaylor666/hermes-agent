@@ -88,7 +88,7 @@ def _get_backend() -> str:
     keys manually without running setup.
     """
     configured = (_load_web_config().get("backend") or "").lower().strip()
-    if configured in ("parallel", "firecrawl", "tavily", "exa"):
+    if configured in ("parallel", "firecrawl", "tavily", "exa", "perplexity"):
         return configured
 
     # Fallback for manual / legacy config — pick the highest-priority
@@ -99,6 +99,7 @@ def _get_backend() -> str:
         ("parallel", _has_env("PARALLEL_API_KEY")),
         ("tavily", _has_env("TAVILY_API_KEY")),
         ("exa", _has_env("EXA_API_KEY")),
+        ("perplexity", _has_env("PERPLEXITY_API_KEY")),
     )
     for backend, available in backend_candidates:
         if available:
@@ -117,6 +118,8 @@ def _is_backend_available(backend: str) -> bool:
         return check_firecrawl_api_key()
     if backend == "tavily":
         return _has_env("TAVILY_API_KEY")
+    if backend == "perplexity":
+        return _has_env("PERPLEXITY_API_KEY") and _find_perplexitycli() is not None
     return False
 
 # ─── Firecrawl Client ────────────────────────────────────────────────────────
@@ -189,6 +192,7 @@ def _web_requires_env() -> list[str]:
         "TAVILY_API_KEY",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
+        "PERPLEXITY_API_KEY",
     ]
     if managed_nous_tools_enabled():
         requires.extend(
@@ -956,6 +960,78 @@ def _exa_extract(urls: List[str]) -> List[Dict[str, Any]]:
     return results
 
 
+# ─── Perplexity Client (via perplexitycli binary) ────────────────────────────
+
+_perplexitycli_path: str | None = None
+
+def _find_perplexitycli() -> str | None:
+    """Locate the perplexitycli binary in bin/ or on PATH."""
+    global _perplexitycli_path
+    if _perplexitycli_path is not None:
+        return _perplexitycli_path
+    import shutil
+    bin_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
+    local = os.path.join(bin_dir, "perplexitycli")
+    if os.path.isfile(local) and os.access(local, os.X_OK):
+        _perplexitycli_path = local
+        return local
+    found = shutil.which("perplexitycli")
+    if found:
+        _perplexitycli_path = found
+    return found
+
+
+def _perplexity_search(query: str, limit: int = 5) -> dict:
+    """Search using the perplexitycli binary and return normalised results."""
+    import subprocess
+    from tools.interrupt import is_interrupted
+    if is_interrupted():
+        return {"error": "Interrupted", "success": False}
+
+    binary = _find_perplexitycli()
+    if not binary:
+        return {"error": "perplexitycli binary not found in bin/ or PATH", "success": False}
+
+    api_key = os.getenv("PERPLEXITY_API_KEY", "")
+    if not api_key:
+        return {"error": "PERPLEXITY_API_KEY not set", "success": False}
+
+    cmd = [binary, "search", query, "--max-results", str(min(limit, 20))]
+    env = {**os.environ, "PERPLEXITY_API_KEY": api_key}
+    base_url = os.getenv("PERPLEXITY_API_BASE_URL", "")
+    if base_url:
+        env["PERPLEXITY_API_BASE_URL"] = base_url
+
+    logger.info("Perplexity search: '%s' (limit=%d)", query, limit)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+    except subprocess.TimeoutExpired:
+        return {"error": "Perplexity search timed out", "success": False}
+    except Exception as e:
+        return {"error": f"perplexitycli failed: {e}", "success": False}
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        return {"error": f"perplexitycli error: {stderr or 'unknown'}", "success": False}
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"error": "Failed to parse perplexitycli output", "success": False}
+
+    web_results = []
+    for i, r in enumerate(data.get("results", [])):
+        entry = {
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "description": r.get("snippet", ""),
+            "position": i + 1,
+        }
+        web_results.append(entry)
+
+    return {"success": True, "data": {"web": web_results}}
+
+
 # ─── Parallel Search & Extract Helpers ────────────────────────────────────────
 
 def _parallel_search(query: str, limit: int = 5) -> dict:
@@ -1111,6 +1187,15 @@ def web_search_tool(query: str, limit: int = 5) -> str:
                 "include_images": False,
             })
             response_data = _normalize_tavily_search_results(raw)
+            debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
+            result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
+            debug_call_data["final_response_size"] = len(result_json)
+            _debug.log_call("web_search_tool", debug_call_data)
+            _debug.save()
+            return result_json
+
+        if backend == "perplexity":
+            response_data = _perplexity_search(query, limit)
             debug_call_data["results_count"] = len(response_data.get("data", {}).get("web", []))
             result_json = json.dumps(response_data, indent=2, ensure_ascii=False)
             debug_call_data["final_response_size"] = len(result_json)
@@ -1922,9 +2007,9 @@ def check_firecrawl_api_key() -> bool:
 def check_web_api_key() -> bool:
     """Check whether the configured web backend is available."""
     configured = _load_web_config().get("backend", "").lower().strip()
-    if configured in ("exa", "parallel", "firecrawl", "tavily"):
+    if configured in ("exa", "parallel", "firecrawl", "tavily", "perplexity"):
         return _is_backend_available(configured)
-    return any(_is_backend_available(backend) for backend in ("exa", "parallel", "firecrawl", "tavily"))
+    return any(_is_backend_available(backend) for backend in ("exa", "parallel", "firecrawl", "tavily", "perplexity"))
 
 
 def check_auxiliary_model() -> bool:
