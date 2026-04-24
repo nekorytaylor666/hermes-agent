@@ -137,17 +137,11 @@ Note: `4:5` and `5:4` are supported by Nano Banana Pro only. `2:3`, `3:2`, `4:3`
 
 ### Upload
 
-```bash
-# For VIDEO inputs — MUST use --force-ip-check (triggers check and waits for completion)
-higgsfieldcli upload --file /path/to/product.png --force-ip-check
+**Upload is not yet exposed as a tool.** When a request requires a local-file reference (product photo, custom photo, etc.), the user must supply a pre-existing `MEDIA_ID` out-of-band. If they can't, tell them the upload flow isn't wired up yet.
 
-# For IMAGE inputs — no IP check needed
-higgsfieldcli upload --file /path/to/ref.png
-```
+**For video inputs:** Seedance 2.0 still requires every input media to pass IP check. For a reference that came from a prior generated **job**, call `higgsfield_ip_check({"job_ids": ["<JOB_ID>"]})` and reject the reference if `ip_detected: true`. For media-level IP check on uploads, the tool flow isn't available yet.
 
-**CRITICAL:** Any media that will be used in `seedance_2_0` generation MUST be uploaded with `--force-ip-check`. Without this flag, the video generation will fail with "IP check not finished for input media". The flag triggers the IP check and automatically waits until it completes before returning (retries up to 5 times on timeout).
-
-Returns: `{"id": "media_abc", "url": "https://...", "status": "...", "ip_check_finished": true}` — only `id` is needed downstream in `"medias"` or `"images"` array.
+When an upload ID is already available, only `id` is needed downstream in `"medias"` or `"images"` array.
 
 ### Media JSON format
 
@@ -194,34 +188,19 @@ Media is passed as a JSON array. Two different structures depending on model:
 
 ## Generation Output & Polling Model
 
-`higgsfieldcli generate --json '...'` is **fire-and-forget**. It prints a `created` line immediately with the job metadata, then returns. Do **not** block, do not set long `timeout:` values, and do not use `run_in_background`.
+`higgsfield_generate` is **fire-and-forget**. It returns `{"job_ids": [...]}` immediately. Do **not** block, do not sleep, and do not hold the tool call open.
 
 ### Output — captured immediately
 
-**Single item input** (JSON object) prints one JSON object:
+The tool always returns the same flat shape regardless of batch size:
 
 ```json
 {
-  "job_set_id": "jobset_...",
-  "job_set_type": "<model>",
-  "job_ids": ["job_..."],
-  "status": "created"
+  "job_ids": ["job_...", "job_..."]
 }
 ```
 
-**Array input** (JSON array) prints a single JSON array, ordered by input index:
-
-```json
-[
-  {"index":0,"job_set_id":"jobset_...","job_set_type":"<model>","job_ids":["job_..."],"status":"created"},
-  {"index":1,"job_set_id":"jobset_...","job_set_type":"<model>","job_ids":["job_..."],"status":"created"},
-  {"index":2,"job_set_id":"jobset_...","job_set_type":"<model>","job_ids":["job_..."],"status":"created"}
-]
-```
-
-Each entry's `index` matches the position in the input array (0-based). Failed items have `"status":"failed"` and an `"error"` field. Use the `index` to let the user reference results by position (e.g., "change the third image" → index 2).
-
-Parse the array to capture `job_set_id`, `job_set_type`, and every `job_ids[i]` per entry. Track the `index` → `job_ids` mapping so users can refer to individual results by number.
+Order is preserved — `job_ids[i]` corresponds to `requests[i]`. Per-item failures appear in a sibling `errors: [{index, error}]` list only when something failed. Track the `index` → `job_id` mapping so users can refer to individual results by position (e.g., "change the third image" → index 2).
 
 ### When to poll
 
@@ -234,30 +213,35 @@ Otherwise — don't poll. Report the `job_id` and `job_set_type` and stop.
 
 ### How to poll
 
-```bash
-higgsfieldcli status --job-id JOB_ID --poll
+```json
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
 
-Polls with 10s intervals until terminal. Returns:
+Accepts one or many job IDs; polls each until terminal. Returns:
 
 ```json
 {
-  "job_id": "...",
-  "status": "completed",
-  "job_set_type": "<model>",
-  "ip_check_finished": false,
-  "ip_detected": false,
-  "job_set_id": "...",
-  "result": {
-    "url": "https://dqv0cqkoy5oj7.cloudfront.net/.../image.png",
-    "type": "image"
-  }
+  "job_ids": ["..."],
+  "results": [
+    {
+      "job_id": "...",
+      "status": "completed",
+      "job_set_type": "<model>",
+      "ip_check_finished": false,
+      "ip_detected": false,
+      "job_set_id": "...",
+      "result": {
+        "url": "https://dqv0cqkoy5oj7.cloudfront.net/.../image.png",
+        "type": "image"
+      }
+    }
+  ]
 }
 ```
 
 Terminal statuses: `completed`, `canceled`, `failed`, `nsfw`, `ip_detected`.
 
-**The result URL is at `result.url`** — this is the direct download link for the generated image or video. When the user asks for the final URL or you need to show the result, extract it from `result.url` in the status output. For downstream references in other generations, use `id` + `type` (not the URL).
+**The result URL is at `results[i].result.url`** — this is the direct download link for the generated image or video. When the user asks for the final URL or you need to show the result, extract it from there. For downstream references in other generations, use `id` + `type` (not the URL).
 
 ### Building a reference from a polled job
 
@@ -301,30 +285,39 @@ Once polled to `completed`, reference the job in the next `generate` call using:
 
 ### Pattern — generate then reference
 
-```bash
-# Step 1: fire and forget (array input returns a JSON array ordered by index)
-CREATED=$(higgsfieldcli generate --json '[{"model":"nano_banana_2","prompt":"..."}]')
-# For array input: parse the batch array — each entry has "index", "job_ids", "job_set_type"
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d[0]['job_ids'][0])")
-JOB_SET_TYPE=$(echo "$CREATED" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d[0]['job_set_type'])")
+```json
+// Step 1: fire and forget — response carries job_ids[], order matches requests[]
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"..."}
+  ]
+})
+// → { "job_ids": ["<JOB_ID>"] }
+// The model name you used (e.g. "nano_banana_2") is the job_set_type; build
+// the reference type by appending "_job" (see mapping table above).
 
-# Step 2 — ONLY if referenced downstream: poll until completed
-higgsfieldcli status --job-id "$JOB_ID" --poll
+// Step 2 — ONLY if referenced downstream: poll to completion
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 
-# Step 2b — If downstream model is seedance_2_0 and reference is a job (not upload):
-# run job-ip-check before submitting the seedance_2_0 generate
-higgsfieldcli job-ip-check --job-id "$JOB_ID" --poll
+// Step 2b — If downstream model is seedance_2_0 and reference is a job (not upload):
+// run IP detection before submitting the seedance_2_0 generate
+higgsfield_ip_check({"job_ids": ["<JOB_ID>"]})
+// Reject if results[0].ip_detected is true.
 
-# Step 3: use as reference (type = <job_set_type>_job) — only id + type needed
-higgsfieldcli generate --json "[{\"model\":\"seedance_2_0\",\"prompt\":\"...\",\"medias\":[{\"role\":\"start_image\",\"data\":{\"id\":\"$JOB_ID\",\"type\":\"${JOB_SET_TYPE}_job\"}}]}]"
+// Step 3: use as reference (type = <job_set_type>_job) — only id + type needed
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"...","medias":[{"role":"start_image","data":{"id":"<JOB_ID>","type":"nano_banana_2_job"}}]}
+  ]
+})
 ```
 
-**Note:** Step 2b (`job-ip-check`) is required ONLY when the downstream model is `seedance_2_0` and the reference is a prior job (not an upload). For other models referencing a job, skip Step 2b — just `id` + `type` after polling to `completed`.
+**Note:** Step 2b (`higgsfield_ip_check`) is required ONLY when the downstream model is `seedance_2_0` and the reference is a prior job (not an upload). For other models referencing a job, skip Step 2b — just `id` + `type` after polling to `completed`.
 
-**Exceptions — these are unrelated and still synchronous:**
+**Other flows not yet exposed as tools:**
 
-- `upload --force-ip-check` — IP check on uploaded media going into video generation (waits automatically)
-- `soul-id create --poll` / `soul-id status --poll` — face model training
+- Media upload with IP check — pending (use a pre-existing `MEDIA_ID` if the user has one)
+- Soul ID training (`soul-id create` / `status`) — pending
 
 ---
 
@@ -334,21 +327,7 @@ Elements are persistent character/location/prop references. Once created, any ge
 
 ### Commands
 
-```bash
-# List elements
-higgsfieldcli element list
-higgsfieldcli element list --category character   # filter: character, environment, prop, auto
-higgsfieldcli element list --size 20
-
-# Get single element
-higgsfieldcli element get --id ELEMENT_ID
-
-# Create element from a generation result
-higgsfieldcli element create \
-  --category character \
-  --name "Detective Maria" \
-  --media "id=JOB_ID;type=image_job"
-```
+> Element management (list / get / create) is **not yet exposed as tools.** When a task needs to list, fetch, or create an element, tell the user the element CRUD flow isn't wired up in this runtime yet. You can still **use** existing element IDs via `<<<element_id>>>` placeholders — the backend resolves them automatically at generation time.
 
 **Categories:** `character`, `environment`, `prop`, `auto`
 
@@ -356,42 +335,34 @@ higgsfieldcli element create \
 
 Embed `<<<element_id>>>` anywhere in any prompt:
 
-```bash
-# Single element in video
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<abc123>>> walks down a rainy street, noir cinematic, slow motion..."}]'
+```json
+// Single element in video
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<<<abc123>>> walks down a rainy street, noir cinematic, slow motion..."}
+  ]
+})
 
-# Single element in image
-higgsfieldcli generate --json '[{"model":"nano_banana_2","prompt":"<<<abc123>>> portrait, dramatic side lighting, 3:4..."}]'
+// Single element in image
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"<<<abc123>>> portrait, dramatic side lighting, 3:4..."}
+  ]
+})
 
-# Multiple elements
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<char1_id>>> and <<<char2_id>>> face each other in <<<location_id>>>, tense standoff..."}]'
+// Multiple elements (in one request)
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<<<char1_id>>> and <<<char2_id>>> face each other in <<<location_id>>>, tense standoff..."}
+  ]
+})
 ```
 
 ---
 
 ## Design Inspiration Query
 
-Query the template index for design reference images before constructing NB2 prompts.
-
-### Commands
-
-```bash
-# Query inspiration and get JSON response
-higgsfieldcli inspiration --query "fitness product energetic dark ad" --top-k 5
-
-# Query inspiration and automatically download result files to a temp folder
-higgsfieldcli inspiration --query "fitness product energetic dark ad" --top-k 5 --download
-```
-
-| Flag             | Description                                 |
-| ---------------- | ------------------------------------------- |
-| `--query, -q`    | Search query keywords (required)            |
-| `--top-k, -k`    | Number of results to return (default: 5)    |
-| `--download, -d` | Download result files to a temporary folder |
-
-**With `--download`:** Returns JSON with `directory` (path to temp folder) and `files` (list of downloaded filenames). Use the Read tool on each downloaded file to view template images.
-
-**Without `--download`:** Returns the inspiration response JSON with template image URLs.
+> The inspiration search/download endpoint is **not yet exposed as a tool.** If a workflow calls for inspiration templates, tell the user this is pending a dedicated tool and fall back to the designer / style rules in the relevant reference file (`banana.md`, etc.). When the tool lands it will accept a `query` + `top_k` and return either JSON with template image URLs, or a local directory of downloaded template files for the Read tool.
 
 ---
 
@@ -519,23 +490,28 @@ A straight-on, mid-length portrait of a young woman in her early 20s with a rela
 
 Use when the user needs a specific/recurring person in videos or images.
 
-```bash
-# 1. Create character — fire-and-forget
-CREATED=$(higgsfieldcli generate --json '[{"model":"soul_cast","prompt":"a young woman, mid-20s, natural beauty, friendly smile, casual style","width":1024,"height":1024,"batch_size":1,"character_params":{"genre":"Sitcom","budget":10}}]')
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().splitlines()[0])['job_ids'][0])")
+```json
+// 1. Create character — non-blocking, capture job_id from the response
+higgsfield_generate({
+  "requests": [
+    {"model":"soul_cast","prompt":"a young woman, mid-20s, natural beauty, friendly smile, casual style","width":1024,"height":1024,"batch_size":1,"character_params":{"genre":"Sitcom","budget":10}}
+  ]
+})
+// → { "job_ids": ["<JOB_ID>"] }
 
-# 2. Poll (required here — element creation needs the job to be completed)
-higgsfieldcli status --job-id "$JOB_ID" --poll
+// 2. Poll to completion (element creation needs the result URL)
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
+```
 
-# 3. Create element
-higgsfieldcli element create \
-  --category character \
-  --name "Lifestyle Blogger" \
-  --media "id=$JOB_ID;type=image_job"
-# Returns element ID, e.g. "elem_xyz"
+> 3. **Create element** — element-create is **not yet exposed as a tool.** Tell the user element registration is pending a dedicated tool. In the meantime, reference the generated job directly in downstream `medias` via `{"id":"<JOB_ID>","type":"soul_cast_job"}` — no element required.
 
-# 4. Use in any generation — element ID is all you need, no polling required
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<elem_xyz>>> holding a skincare bottle, UGC authentic, 9:16..."}]'
+```json
+// 4. Use in any generation — once an element_id exists, reference it via <<<...>>>
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<<<elem_xyz>>> holding a skincare bottle, UGC authentic, 9:16..."}
+  ]
+})
 ```
 
 **soul_cast JSON fields:**
@@ -555,50 +531,58 @@ higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<elem_xyz>>>
 
 Use when a consistent background/setting is needed across multiple shots.
 
-```bash
-# 1. Generate location — fire-and-forget
-CREATED=$(higgsfieldcli generate --json '[{"model":"soul_location","prompt":"modern minimalist apartment, large windows, natural light, neutral tones","width":2048,"height":1152}]')
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().splitlines()[0])['job_ids'][0])")
+```json
+// 1. Generate location — non-blocking
+higgsfield_generate({
+  "requests": [
+    {"model":"soul_location","prompt":"modern minimalist apartment, large windows, natural light, neutral tones","width":2048,"height":1152}
+  ]
+})
+// → { "job_ids": ["<JOB_ID>"] }
 
-# 2. Poll (element creation needs the job to be completed)
-higgsfieldcli status --job-id "$JOB_ID" --poll
+// 2. Poll to completion (element creation needs the result URL)
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
+```
 
-# 3. Create element
-higgsfieldcli element create \
-  --category environment \
-  --name "Minimalist Apartment" \
-  --media "id=$JOB_ID;type=image_job"
+> 3. **Create element** — not yet exposed as a tool. Reference the generated job directly via `{"id":"<JOB_ID>","type":"soul_location_job"}` in downstream `medias`.
 
-# 4. Use in generation (no polling needed — element IDs resolve on backend)
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<char_id>>> in <<<env_id>>>, morning routine, cinematic..."}]'
+```json
+// 4. Use in generation (with an existing element_id)
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<<<char_id>>> in <<<env_id>>>, morning routine, cinematic..."}
+  ]
+})
 ```
 
 ---
 
 ## When to Create Elements
 
-- **Always** create an element when generating via `soul-cast` or `soul-location` — these exist specifically for reuse
-- **Check first:** before creating a new character/environment, run `element list --category character` — if a suitable element already exists, reuse it
+- **Ideal** for `soul-cast` / `soul-location` outputs — they exist specifically for reuse
 - **Reuse over recreate:** using `<<<existing_id>>>` gives better consistency than generating a new character each time
+- **Current runtime:** element listing / creation is not yet exposed as a tool. When you can't create a persistent element, fall back to referencing the prior generated job directly in `medias` (`{"id":"<JOB_ID>","type":"<job_set_type>_job"}`)
 
 ---
 
 ## General Image Generation Workflow
 
-```bash
-# 1. Select model (table above)
-# 2. (Optional) Upload reference image if needed (no --force-ip-check for image generation)
-IMAGE_ID=$(higgsfieldcli upload --file /path/to/ref.png | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+```json
+// 1. Select model (table above)
+// 2. (Optional) Have a pre-existing reference IMAGE_ID if needed — upload tool not yet exposed
 
-# 3. Generate — fire-and-forget, capture job_id from the first line
-CREATED=$(higgsfieldcli generate --json '[{"model":"text2image_soul_v2","prompt":"<<<elem_id>>> portrait, golden hour, editorial fashion, 3:4","medias":[{"role":"image","data":{"id":"'$IMAGE_ID'","type":"media_input"}}]}]')
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().splitlines()[0])['job_ids'][0])")
+// 3. Generate — non-blocking, returns {job_ids}
+higgsfield_generate({
+  "requests": [
+    {"model":"text2image_soul_v2","prompt":"<<<elem_id>>> portrait, golden hour, editorial fashion, 3:4","medias":[{"role":"image","data":{"id":"<IMAGE_ID>","type":"media_input"}}]}
+  ]
+})
 
-# 4. (Optional) Only if you need to reuse this result → poll then create element
-higgsfieldcli status --job-id "$JOB_ID" --poll
-higgsfieldcli element create --category character --name "Name" \
-  --media "id=$JOB_ID;type=image_job"
+// 4. (Optional) Only if you need to reuse this result → poll to completion
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
+
+> Element creation (`element create`) is **not yet exposed as a tool.** Reference the prior job directly via `{"id":"<JOB_ID>","type":"text2image_soul_v2_job"}` in downstream `medias`.
 
 ---
 
@@ -608,36 +592,30 @@ Use when the user wants to train a face model from photos and generate images wi
 
 ### Commands
 
-```bash
-# Create Soul ID from a directory of face photos
-higgsfieldcli soul-id create --dir ./photos --name "Maria" --poll
+> Soul ID management (`create` / `list` / `status` / `delete`) is **not yet exposed as tools.** When the user asks to train / list / delete Soul IDs, tell them this flow isn't wired up in this runtime yet. A pre-existing `SOUL_ID` (from an earlier out-of-band training) can still be used in generation:
 
-# List all Soul IDs
-higgsfieldcli soul-id list
-
-# Check training status
-higgsfieldcli soul-id status --id SOUL_ID --poll
-
-# Delete Soul ID
-higgsfieldcli soul-id delete --id SOUL_ID
-
-# Generate image with trained face
-higgsfieldcli generate --json '[{"model":"text2image_soul_v2","prompt":"portrait, golden hour, editorial style","soul_id":"SOUL_ID"}]'
+```json
+// Generate image with trained face (requires pre-existing SOUL_ID)
+higgsfield_generate({
+  "requests": [
+    {"model":"text2image_soul_v2","prompt":"portrait, golden hour, editorial style","soul_id":"<SOUL_ID>"}
+  ]
+})
 ```
 
 ### Full Workflow
 
 1. **Collect face photos** — from local files, downloads, or Instagram fetch (instagramcli)
-2. **Create Soul ID:**
-   ```bash
-   RESULT=$(higgsfieldcli soul-id create --dir ./face_photos --name "Maria" --poll)
+2. **Train Soul ID** — not yet exposed as a tool. Tell the user this step must be performed out-of-band; resume once a `SOUL_ID` is available.
+3. **Generate with Soul ID (non-blocking):**
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"text2image_soul_v2","prompt":"portrait, dramatic lighting, editorial fashion","soul_id":"<SOUL_ID>"}
+     ]
+   })
    ```
-   `--poll` waits until training completes. Returns Soul ID.
-3. **Generate with Soul ID (fire-and-forget):**
-   ```bash
-   higgsfieldcli generate --json '[{"model":"text2image_soul_v2","prompt":"portrait, dramatic lighting, editorial fashion","soul_id":"SOUL_ID"}]'
-   ```
-4. Capture `job_id` and `job_set_type` from the `created` line. Poll via `status --job-id ... --poll` only if the image is referenced downstream or the user wants the URL.
+4. Capture `job_ids` from the response. Poll via `higgsfield_job_status({"job_ids":[...]})` only if the image is referenced downstream or the user wants the URL.
 
 ### When to use Soul ID vs Soul Cast vs Elements
 

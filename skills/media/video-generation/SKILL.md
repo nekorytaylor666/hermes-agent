@@ -43,7 +43,7 @@ For camera body/lens/focal/aperture presets see `.claude/skills/video-skill/refe
 
 ### 8-Point Pre-Generation Checklist
 
-**Verify EVERY prompt passes ALL 8 checks before running `higgsfieldcli generate`.**
+**Verify EVERY prompt passes ALL 8 checks before calling `higgsfield_generate`.**
 
 **CHECK 0 — Audio is mandatory (HARD RULE):** Every `seedance_2_0` generation MUST include BOTH of these, together, or it is invalid and must not be submitted:
 
@@ -200,28 +200,34 @@ Negative: [constraints].
 
 ---
 
-## CLI COMMANDS
+## TOOLS
 
-### `generate` — Generate (Seedance 2.0)
+### `higgsfield_generate` — Generate (Seedance 2.0)
 
-**Single video:**
+**Single video (still wrapped in `requests` array):**
 
-```bash
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"Camera: [settings]. Camera Style: [axis]. Light: [axis]. Style & Mood: [color + atmosphere]. Narrative Summary: [scene]. Starting Composition: [first frame]. [Scene labels with timestamps]. Static Description: [location]. Negative: [constraints].","duration":8,"aspect_ratio":"9:16"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Camera: [settings]. Camera Style: [axis]. Light: [axis]. Style & Mood: [color + atmosphere]. Narrative Summary: [scene]. Starting Composition: [first frame]. [Scene labels with timestamps]. Static Description: [location]. Negative: [constraints].","duration":8,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 **Multiple independent videos (parallel):**
 
-The CLI accepts a JSON array for concurrent generation. Use this when generating multiple independent scenes/shots that don't depend on each other's results:
+The `requests` array runs items concurrently. Use this when generating multiple independent scenes/shots that don't depend on each other's results:
 
-```bash
-higgsfieldcli generate --json '[
-  {"model":"seedance_2_0","prompt":"Camera: ... [scene 1]","duration":8,"aspect_ratio":"9:16"},
-  {"model":"seedance_2_0","prompt":"Camera: ... [scene 2]","duration":10,"aspect_ratio":"9:16"}
-]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Camera: ... [scene 1]","duration":8,"aspect_ratio":"9:16"},
+    {"model":"seedance_2_0","prompt":"Camera: ... [scene 2]","duration":10,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
-All items run concurrently. Each prints its own result JSON line as it completes. Errors are reported per-item (`request[N]: ...`).
+All items run concurrently (up to `concurrency`, default 8). Returns `{"job_ids": [...]}` within seconds. Per-item errors are reported in `errors: [{index, error}]`.
 
 **When to use parallel:** Multiple independent scenes, variant takes of the same scene, batch generation of unrelated clips.
 **When NOT to use parallel:** Scene B requires Scene A's output as a reference input.
@@ -238,43 +244,31 @@ All items run concurrently. Each prints its own result JSON line as it completes
 | `resolution`     | string | `"720p"`   | `"720p"`                                                                                                                                      |
 | `generate_audio` | bool   | `true`     | Audio is ON by default. Set to `false` ONLY when the user explicitly asks for a silent clip, or when the clip is b-roll / loop material intended to be paired with external audio in post (montage, marketing ad with custom voiceover, etc.).  |
 
-### `upload` — Upload Reference Media
+### Upload — Reference Media
 
-```bash
-higgsfieldcli upload --file /path/to/image.png
-```
-
-Returns `{"id": "media_abc", "url": "https://..."}` — only `id` is needed in the `medias` array.
+**Upload is not yet exposed as a tool.** Pre-existing media/image IDs must be supplied by the user (or obtained out-of-band). When a local file is required for image-to-video, tell the user upload isn't wired up yet.
 
 #### IP Check for Seedance 2 Inputs
 
-**All uploaded images, videos, and elements used as Seedance 2 inputs MUST pass IP check before generation.** Use `--force-ip-check` to upload and wait for the check to complete:
+**All images, videos, and elements used as Seedance 2 inputs MUST pass IP check before generation.** For a prior generated job used as reference, call `higgsfield_ip_check`:
 
-```bash
-higgsfieldcli upload --file /path/to/image.png --force-ip-check
+```json
+higgsfield_ip_check({"job_ids": ["JOB_ID"]})
 ```
 
-Returns `{"id": "media_abc", "url": "https://...", "status": "...", "ip_check_finished": true}`.
-
-| Flag               | Description                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `--force-ip-check` | Triggers IP check on the uploaded media and waits until it completes (retries up to 5 times on timeout) |
-
-**IP check result:** If `ip_check_finished` is `true` and `status` is not `"ip_detected"`, the media is safe to use. If `status` is `"ip_detected"`, choose different media.
-
-If IP check fails, do NOT use the media for video generation — it will be rejected. Choose different source media instead.
+Returns `{"job_ids": ["..."], "results": [{"job_id","triggered","ip_check_finished","ip_detected","status"}]}`. If `ip_detected` is `true`, do NOT use the media/job — choose different source material.
 
 ### Polling — Fire-and-Forget
 
-`higgsfieldcli generate` no longer blocks. It prints a `created` line with `job_set_id`, `job_set_type`, `job_ids` immediately and returns. Capture that and move on — do NOT use long timeouts or `run_in_background`.
+`higgsfield_generate` is non-blocking by default. It returns `{"job_ids": [...]}` within seconds. Capture that and end the turn — do NOT loop, sleep, or hold the tool call open.
 
 **Poll only when the video result is referenced downstream** (montage input, image/video chain, or user asks for the URL):
 
-```bash
-higgsfieldcli status --job-id JOB_ID --poll
+```json
+higgsfield_job_status({"job_ids": ["JOB_ID"]})
 ```
 
-Returns `{"job_id","status","job_set_type","ip_check_finished","ip_detected","job_set_id","result":{"url","type"}}`. `result.url` is the CDN URL of the finished video; `result.type` is `"video"`. Reference the job in a subsequent generate with `id=JOB_ID`, `type=seedance_2_0_job` (no url needed). If the downstream generation is also `seedance_2_0` and references a prior job, run `higgsfieldcli job-ip-check --job-id <id> --poll` before submitting.
+Returns `{"job_ids": ["..."], "results": [{"job_id","status","job_set_type","ip_check_finished","ip_detected","job_set_id","result":{"url","type"}}]}`. `result.url` is the CDN URL of the finished video; `result.type` is `"video"`. Reference the job in a subsequent generate with `id=JOB_ID`, `type=seedance_2_0_job` (no url needed). If the downstream generation is also `seedance_2_0` and references a prior job, call `higgsfield_ip_check({"job_ids":["<id>"]})` first and reject if `ip_detected` is true.
 
 **Terminal statuses:** `completed`, `canceled`, `failed`, `nsfw`, `ip_detected`
 
@@ -284,31 +278,39 @@ Returns `{"job_id","status","job_set_type","ip_check_finished","ip_detected","jo
 
 ### Text-to-Video
 
-```bash
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"Camera: ARRI Alexa 35, clean sensor, 8K. ARRI Signature Prime | high resolution, soft micro-contrast, creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of David Fincher, imperceptible dolly forward, mechanically perfect stabilization, no handheld, no snap movement. Light: Only natural daylight from window, soft directional gradient, no artificial sources, no fill light. Style & Mood: Kodak Vision3 250D, warm amber highlights, neutral shadows. Morning warmth, golden hour volumetric light, coffee steam catching sun rays. Narrative Summary: Morning light fills a cozy coffee shop as steam curls from ceramic cups. Starting Composition: Camera in doorway, eye-level, 35mm wide shot. Wooden counter midground, ceramic cups aligned, tall windows frame-right casting long shadows across surfaces. No people visible. Scene 1 (0–4s): 35mm, eye-level, imperceptible dolly push in from doorway toward counter. Steam curls from cups, morning light streams through windows, long shadows shift across wooden surfaces. Ambient: distant street sounds, ceramic clink, coffee machine hum. Scene 2 (4–8s): 50mm, medium shot, micro push-in. Camera arrives at counter level. Steam rises through a shaft of window light, particles suspended. A hand enters frame-right, lifts a cup. Static Description: Coffee shop interior, wooden counter, ceramic cups, tall windows, morning light, exposed brick wall. Negative: no handheld, no snap movement, no fast cuts, no music.","duration":8,"aspect_ratio":"9:16"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Camera: ARRI Alexa 35, clean sensor, 8K. ARRI Signature Prime | high resolution, soft micro-contrast, creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of David Fincher, imperceptible dolly forward, mechanically perfect stabilization, no handheld, no snap movement. Light: Only natural daylight from window, soft directional gradient, no artificial sources, no fill light. Style & Mood: Kodak Vision3 250D, warm amber highlights, neutral shadows. Morning warmth, golden hour volumetric light, coffee steam catching sun rays. Narrative Summary: Morning light fills a cozy coffee shop as steam curls from ceramic cups. Starting Composition: Camera in doorway, eye-level, 35mm wide shot. Wooden counter midground, ceramic cups aligned, tall windows frame-right casting long shadows across surfaces. No people visible. Scene 1 (0–4s): 35mm, eye-level, imperceptible dolly push in from doorway toward counter. Steam curls from cups, morning light streams through windows, long shadows shift across wooden surfaces. Ambient: distant street sounds, ceramic clink, coffee machine hum. Scene 2 (4–8s): 50mm, medium shot, micro push-in. Camera arrives at counter level. Steam rises through a shaft of window light, particles suspended. A hand enters frame-right, lifts a cup. Static Description: Coffee shop interior, wooden counter, ceramic cups, tall windows, morning light, exposed brick wall. Negative: no handheld, no snap movement, no fast cuts, no music.","duration":8,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
-Returns a `created` line immediately with `job_set_id`, `job_set_type: "seedance_2_0"`, `job_ids`. Do not wait. Poll only if the video is referenced downstream.
+Returns `{"job_ids": [...]}` immediately. Do not wait. Poll only if the video is referenced downstream.
 
 ### Element-to-Video (Preferred for Characters/Locations)
 
 Use reference elements for consistent characters and locations across multiple videos. No upload or masking needed.
 
-```bash
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"Camera: Arriflex 16SR, 16mm film, heavy grain. ARRI Signature Prime | high resolution, creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of Sean Baker, subtle handheld with operator breathing, near-static micro-sway, no aggressive handheld, no crane, no dolly. Light: Only practical light sources — neon signs, street lamps, no fill light, no flat illumination. Style & Mood: Fuji Eterna 500, desaturated blue-grey wash, steel-blue midtones, cold and metallic. Gritty documentary intimacy, rain-soaked urban night. Narrative Summary: <<<CHAR_ELEMENT_ID>>> walks through <<<LOC_ELEMENT_ID>>> on a rain-soaked night. Starting Composition: Camera at shoulder height, 35mm medium shot. The figure (<<<CHAR_ELEMENT_ID>>>) enters frame-left, walking right-to-left along the sidewalk. Neon signs reflect in wet asphalt. Scattered pedestrians in background. Scene 1 (0–4s): 35mm, shoulder-height, subtle handheld tracking from the side. The figure walks right-to-left, coat swaying, rain catching streetlight glare. Neon reflections slide across wet pavement. → Hard cut. Scene 2 (4–8s): 50mm, medium close-up, micro push-in. The figure pauses, turns head and looks back over shoulder. Rain beads on coat fabric. Breath visible in cold air. Static Description: Rain-soaked urban street at night, neon signs, wet asphalt, scattered pedestrians, puddles reflecting colored light. Negative: no aggressive handheld, no crane, no dolly, no choreographed camera path, no music.","duration":8,"aspect_ratio":"9:16"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Camera: Arriflex 16SR, 16mm film, heavy grain. ARRI Signature Prime | high resolution, creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of Sean Baker, subtle handheld with operator breathing, near-static micro-sway, no aggressive handheld, no crane, no dolly. Light: Only practical light sources — neon signs, street lamps, no fill light, no flat illumination. Style & Mood: Fuji Eterna 500, desaturated blue-grey wash, steel-blue midtones, cold and metallic. Gritty documentary intimacy, rain-soaked urban night. Narrative Summary: <<<CHAR_ELEMENT_ID>>> walks through <<<LOC_ELEMENT_ID>>> on a rain-soaked night. Starting Composition: Camera at shoulder height, 35mm medium shot. The figure (<<<CHAR_ELEMENT_ID>>>) enters frame-left, walking right-to-left along the sidewalk. Neon signs reflect in wet asphalt. Scattered pedestrians in background. Scene 1 (0–4s): 35mm, shoulder-height, subtle handheld tracking from the side. The figure walks right-to-left, coat swaying, rain catching streetlight glare. Neon reflections slide across wet pavement. → Hard cut. Scene 2 (4–8s): 50mm, medium close-up, micro push-in. The figure pauses, turns head and looks back over shoulder. Rain beads on coat fabric. Breath visible in cold air. Static Description: Rain-soaked urban street at night, neon signs, wet asphalt, scattered pedestrians, puddles reflecting colored light. Negative: no aggressive handheld, no crane, no dolly, no choreographed camera path, no music.","duration":8,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 The backend automatically resolves `<<<element_id>>>` and injects the element's media as reference. Multiple elements can be used in a single prompt.
 
 ### Image-to-Video (Legacy — use elements when possible)
 
-```bash
-# 1. Upload reference
-UPLOAD=$(higgsfieldcli upload --file output/images/character.png)
-IMAGE_ID=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# 2. Generate with reference
-higgsfieldcli generate --json "[{\"model\":\"seedance_2_0\",\"prompt\":\"@Image1 is the character reference. Camera: Arriflex 16SR, 16mm film, heavy grain. ARRI Signature Prime | creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of Sean Baker, subtle handheld, near-static micro-sway, no aggressive handheld, no crane, no dolly. Light: Only practical sources — neon signs, street lamps, no fill light. Style & Mood: Desaturated blue-grey wash, gritty documentary aesthetic. Narrative Summary: A figure walks through a rain-soaked city street at night. Starting Composition: Camera at shoulder height, 35mm medium shot. The figure (@Image1) enters frame-left on wet sidewalk, neon reflections on asphalt. Scene 1 (0–4s): 35mm, handheld tracking from the side. The figure walks right-to-left, coat swaying, rain catching streetlight glare. → Hard cut. Scene 2 (4–8s): 50mm, push-in. The figure pauses and looks back over shoulder. Rain beads on fabric. Static Description: Rain-soaked urban street at night, neon signs, wet asphalt, scattered pedestrians. Negative: no aggressive handheld, no crane, no dolly, no music.\",\"medias\":[{\"role\":\"start_image\",\"data\":{\"id\":\"$IMAGE_ID\",\"type\":\"media_input\"}}],\"duration\":8,\"aspect_ratio\":\"9:16\"}]"
+```json
+// Requires a pre-existing IMAGE_ID; upload is not yet exposed as a tool.
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"@Image1 is the character reference. Camera: Arriflex 16SR, 16mm film, heavy grain. ARRI Signature Prime | creamy bokeh | 35, f/2.8. Camera Style: Cinematographic style of Sean Baker, subtle handheld, near-static micro-sway, no aggressive handheld, no crane, no dolly. Light: Only practical sources — neon signs, street lamps, no fill light. Style & Mood: Desaturated blue-grey wash, gritty documentary aesthetic. Narrative Summary: A figure walks through a rain-soaked city street at night. Starting Composition: Camera at shoulder height, 35mm medium shot. The figure (@Image1) enters frame-left on wet sidewalk, neon reflections on asphalt. Scene 1 (0–4s): 35mm, handheld tracking from the side. The figure walks right-to-left, coat swaying, rain catching streetlight glare. → Hard cut. Scene 2 (4–8s): 50mm, push-in. The figure pauses and looks back over shoulder. Rain beads on fabric. Static Description: Rain-soaked urban street at night, neon signs, wet asphalt, scattered pedestrians. Negative: no aggressive handheld, no crane, no dolly, no music.","medias":[{"role":"start_image","data":{"id":"<IMAGE_ID>","type":"media_input"}}],"duration":8,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 ---

@@ -13,8 +13,8 @@ User: product photo/URL + prompt
   → If brand style requested: run Brand Style Extraction (see below) → build Brief → apply to generation
   → Route to matching reference (see Routing table)
   → Build prompt from reference template (with Brand Brief overrides if active)
-  → higgsfieldcli upload (product photo) --force-ip-check
-  → higgsfieldcli generate --json (seedance_2_0, enhanced prompt + medias) — returns `created` line immediately (fire-and-forget)
+  → Obtain product photo MEDIA_ID (upload tool not yet exposed — user-supplied or out-of-band)
+  → higgsfield_generate({"requests": [{model: seedance_2_0, prompt + medias, ...}]}) — returns job_ids immediately (fire-and-forget)
 ```
 
 ---
@@ -180,40 +180,40 @@ Match the request (or each beat in multi-beat) against this table:
 
 ---
 
-## CLI Commands
+## Tools
 
 ### Upload Reference Media
 
-```bash
-# MUST use --force-ip-check for any media going into video generation
-# (flag triggers the IP check and automatically waits until it completes — no --poll needed)
-higgsfieldcli upload --file /path/to/product.png --force-ip-check
-```
+**Upload is not yet exposed as a tool.** Product photos / reference images must arrive with a pre-existing `MEDIA_ID`. If the user provides a local file, tell them upload isn't wired up yet.
 
-**CRITICAL:** Always use `--force-ip-check` when uploading media for video. Without this flag, video generation will fail with "IP check not finished for input media". The flag triggers the IP check and waits automatically (retries up to 5 times on timeout).
-
-Returns `{"id": "media_abc", "url": "https://...", "ip_check_finished": true}` — only `id` is needed in the `medias` array.
+When referencing a prior generated job instead of an uploaded image, skip upload entirely: use `{"id": "<JOB_ID>", "type": "seedance_2_0_job"}` (or the relevant `<job_set_type>_job`) in `medias`, and call `higgsfield_ip_check({"job_ids": ["<JOB_ID>"]})` before submitting.
 
 ### Generate Video (seedance_2_0)
 
-**Single video:**
+**Single video (still wrapped in `requests`):**
 
-```bash
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"Style & Mood: ... [full prompt from reference template]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":8,"aspect_ratio":"9:16"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Style & Mood: ... [full prompt from reference template]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":8,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 **Multiple independent videos (parallel):**
 
-The CLI accepts a JSON array for concurrent generation. Use when generating multiple independent ad variants, A/B test videos, or different product angles simultaneously:
+The `requests` array runs items concurrently. Use for multiple independent ad variants, A/B test videos, or different product angles simultaneously:
 
-```bash
-higgsfieldcli generate --json '[
-  {"model":"seedance_2_0","prompt":"Style & Mood: ... [variant A]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":8,"aspect_ratio":"9:16"},
-  {"model":"seedance_2_0","prompt":"Style & Mood: ... [variant B]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16"}
-]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"Style & Mood: ... [variant A]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":8,"aspect_ratio":"9:16"},
+    {"model":"seedance_2_0","prompt":"Style & Mood: ... [variant B]","medias":[{"role":"start_image","data":{"id":"MEDIA_ID","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
-All items run concurrently. Each prints its own result JSON line. Errors reported per-item (`request[N]: ...`).
+All items run concurrently (up to `concurrency`, default 8). Returns `{"job_ids": [...]}` within seconds. Per-item errors appear in `errors: [{index, error}]`.
 
 **When to use parallel:** Multiple ad variants, A/B creative tests, same product with different angles/styles, batch of independent videos sharing the same uploaded media.
 **When NOT to use parallel:** Videos that depend on each other's output (e.g., video B uses video A's result as reference).
@@ -229,11 +229,11 @@ All items run concurrently. Each prints its own result JSON line. Errors reporte
 
 ### Fire-and-Forget Generation
 
-The CLI returns a `created` line immediately with `job_set_id`, `job_set_type`, `job_ids`. Do not wait — no special timeout needed. Still never use `run_in_background: true` — you must capture the `created` line.
+`higgsfield_generate` returns `{"job_ids": [...]}` immediately. Do not wait.
 
-Poll via `higgsfieldcli status --job-id <id> --poll` only if the result is needed downstream (e.g., character image needed as reference for video generation, or element creation).
+Poll via `higgsfield_job_status({"job_ids": ["<id>"]})` only if the result is needed downstream (e.g., character image needed as reference for video generation, or element creation).
 
-**Seedance 2.0 job-reference rule:** When a `seedance_2_0` generation uses a prior **job** (not upload) as input, run `higgsfieldcli job-ip-check --job-id <UPSTREAM_JOB_ID> --poll` after the upstream job completes and before submitting the seedance generate.
+**Seedance 2.0 job-reference rule:** When a `seedance_2_0` generation uses a prior **job** (not upload) as input, call `higgsfield_ip_check({"job_ids": ["<UPSTREAM_JOB_ID>"]})` after the upstream job completes and before submitting the seedance generate. Reject if `ip_detected` is true.
 
 Terminal statuses: `completed`, `canceled`, `failed`, `nsfw`, `ip_detected`
 
@@ -241,13 +241,14 @@ Terminal statuses: `completed`, `canceled`, `failed`, `nsfw`, `ip_detected`
 
 ## Full Workflow Example
 
-```bash
-# 1. Upload product photo (--force-ip-check required for video; flag waits automatically)
-UPLOAD=$(higgsfieldcli upload --file product.png --force-ip-check)
-IMAGE_ID=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# 2. Generate video (prompt built from reference) — returns created line immediately (fire-and-forget)
-higgsfieldcli generate --json "[{\"model\":\"seedance_2_0\",\"prompt\":\"@Image1 is the product reference. Style & Mood: UGC authentic, natural window light, iPhone front-camera aesthetic, warm tones. Narrative Summary: A young woman enthusiastically reviews a skincare product in her bedroom. Dynamic Description: Medium close-up, front-facing camera at eye level — she holds the product (@Image1) up beside her face, gesturing toward it with her free hand, eyes bright, speaking directly into the lens. She tilts the bottle to show the label, then unscrews the cap and squeezes a small amount onto her fingertips. Static Description: Cozy bedroom, soft daylight from window, neutral bedding, warm ambient tones. Audio: She speaks to camera: 'Okay so this serum has completely changed my skin, like I am not exaggerating — look at this glow.' Facial features clear and undistorted, consistent clothing, 4K Ultra HD, stable and blur-free.\",\"medias\":[{\"role\":\"start_image\",\"data\":{\"id\":\"$IMAGE_ID\",\"type\":\"media_input\"}}],\"duration\":10,\"aspect_ratio\":\"9:16\",\"generate_audio\":true}]"
+```json
+// 1. Obtain product photo MEDIA_ID (upload not yet exposed as tool — user-supplied).
+// 2. Generate video — returns job_ids immediately (fire-and-forget).
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"@Image1 is the product reference. Style & Mood: UGC authentic, natural window light, iPhone front-camera aesthetic, warm tones. Narrative Summary: A young woman enthusiastically reviews a skincare product in her bedroom. Dynamic Description: Medium close-up, front-facing camera at eye level — she holds the product (@Image1) up beside her face, gesturing toward it with her free hand, eyes bright, speaking directly into the lens. She tilts the bottle to show the label, then unscrews the cap and squeezes a small amount onto her fingertips. Static Description: Cozy bedroom, soft daylight from window, neutral bedding, warm ambient tones. Audio: She speaks to camera: 'Okay so this serum has completely changed my skin, like I am not exaggerating — look at this glow.' Facial features clear and undistorted, consistent clothing, 4K Ultra HD, stable and blur-free.","medias":[{"role":"start_image","data":{"id":"<MEDIA_ID>","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16","generate_audio":true}
+  ]
+})
 ```
 
 ---
@@ -310,34 +311,42 @@ When a video ad request involves a specific person (generated character, uploade
 
 Use `<<<element_id>>>` directly in the prompt **instead of** `@ImageN` for the creator.
 
-1. **Check existing elements:** `higgsfieldcli element list --category character`
-2. **If suitable element exists** — use it. If not — generate via **Soul 2.0** (see Soul 2.0 Character Prompt Rules in `/higgsfield`), then `element create --category character`
+1. **Check existing elements:** element listing is not yet exposed as a tool — rely on element IDs the user already has, or ones produced earlier in the session.
+2. **If suitable element exists** — use it. If not — generate via **Soul 2.0** (see Soul 2.0 Character Prompt Rules in `/higgsfield`), then register it as an element (element creation tool not yet wired up — tell the user).
 3. **Build prompt from reference template as usual**, but replace `@ImageN is the creator reference` with `<<<element_id>>>`:
    ```
    <<<elem_xyz>>> is the creator. @Image1 is the product reference. ANGLE LOCK: ...
    Dynamic Description: <<<elem_xyz>>> holds the product up to the camera, gestures enthusiastically...
    ```
-4. **CLI call** — product photo still goes in `medias` array, element is resolved from `<<<id>>>` in the prompt:
-   ```bash
-   higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<elem_xyz>>> is the creator. @Image1 is the product reference. ...","medias":[{"role":"start_image","data":{"id":"PRODUCT_UPLOAD_ID","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16","generate_audio":true}]'
+4. **Tool call** — product photo still goes in `medias` array, element is resolved from `<<<id>>>` in the prompt:
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"seedance_2_0","prompt":"<<<elem_xyz>>> is the creator. @Image1 is the product reference. ...","medias":[{"role":"start_image","data":{"id":"<PRODUCT_MEDIA_ID>","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16","generate_audio":true}
+     ]
+   })
    ```
 
 ### Path 2: Image result URL (from soul-v2, soul-cinematic, or any image generation — no element created)
 
-Upload the result as a regular media file, then use `@ImageN` as creator reference.
+Use the prior generated image as a job reference (no upload tool needed).
 
-1. **Upload the generated image** (with `--force-ip-check` since it's going into video; flag waits automatically):
-   ```bash
-   CREATOR_ID=$(higgsfieldcli upload --file /path/to/generated_creator.png --force-ip-check | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+1. **Use the prior job ID directly** via `medias`, typed as `<job_set_type>_job` (e.g. `text2image_soul_v2_job`). No upload round-trip required. Before submitting, verify IP:
+   ```json
+   higgsfield_ip_check({"job_ids": ["<CREATOR_JOB_ID>"]})
    ```
 2. **Build prompt from reference template** — use `@Image1` for product, `@Image2` for creator (or vice versa, just keep `medias` order matching):
    ```
    @Image1 is the product reference. @Image2 is the creator reference. ANGLE LOCK: ...
    Dynamic Description: The creator (@Image2) holds the product (@Image1) up to the camera...
    ```
-3. **CLI call** — both go in the `medias` array:
-   ```bash
-   higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"@Image1 is the product reference. @Image2 is the creator reference. ...","medias":[{"role":"start_image","data":{"id":"PRODUCT_ID","type":"media_input"}},{"role":"start_image","data":{"id":"CREATOR_ID","type":"media_input"}}],"duration":10,"aspect_ratio":"9:16","generate_audio":true}]'
+3. **Tool call** — both go in the `medias` array:
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"seedance_2_0","prompt":"@Image1 is the product reference. @Image2 is the creator reference. ...","medias":[{"role":"start_image","data":{"id":"<PRODUCT_MEDIA_ID>","type":"media_input"}},{"role":"start_image","data":{"id":"<CREATOR_JOB_ID>","type":"text2image_soul_v2_job"}}],"duration":10,"aspect_ratio":"9:16","generate_audio":true}
+     ]
+   })
    ```
 
 ### Path summary
