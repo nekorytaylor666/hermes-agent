@@ -72,3 +72,6 @@ website/static/api/skills-index.json
 
 # JetBrains IDEs
 .idea
+
+# Self-hosted Honcho (cloned + .env with secrets — see infra/honcho/README.md)
+infra/honcho/
