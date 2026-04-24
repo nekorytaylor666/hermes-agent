@@ -88,9 +88,12 @@ fi
 # was passed, start the gateway in Higgs-only mode.  Matches the
 # Higgsclaw-orchestrator's contract: one pod, one chat, exits on
 # ONE_SHOT=true or IDLE_TIMEOUT_SECONDS.
+#
+# Uses `gateway run` (foreground) not `gateway start` — `start` is the
+# host-side launchd / systemd wrapper and is a no-op inside a container.
 if [ $# -eq 0 ] && [ -n "$CHAT_ID" ] && [ -n "$REDIS_HOST" ]; then
     echo "Higgs mode: starting gateway for chat_id=$CHAT_ID"
-    exec hermes gateway start
+    exec hermes gateway run
 fi
 
 # Final exec: two supported invocation patterns.
