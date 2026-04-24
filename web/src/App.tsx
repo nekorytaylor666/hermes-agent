@@ -46,6 +46,7 @@ import { useTheme } from "@/themes";
  *  `path` in `BUILTIN_NAV` so `/path` lookups stay consistent. */
 const BUILTIN_ROUTES: Record<string, React.ComponentType> = {
   "/": StatusPage,
+  "/chat": ChatPage,
   "/sessions": SessionsPage,
   "/analytics": AnalyticsPage,
   "/logs": LogsPage,

@@ -2463,12 +2463,43 @@ class BasePlatformAdapter(ABC):
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
         """
         Get information about a chat/channel.
-        
+
         Returns dict with at least:
         - name: Chat name
         - type: "dm", "group", "channel"
         """
         pass
+
+    def make_stream_consumer(
+        self,
+        chat_id: str,
+        config: Any,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Factory for the streaming consumer this adapter expects.
+
+        Default: return the batch-and-edit :class:`GatewayStreamConsumer`
+        for adapters that support in-place message edits.  Adapters whose
+        wire is append-only (no edit API) return ``None`` to signal
+        "skip streaming" — the gateway falls back to buffering the
+        whole response and delivering via a single ``send()`` call.
+
+        Override for adapters whose wire format isn't plain-text-edit —
+        e.g. the Higgs adapter swaps in a per-delta XADD consumer that
+        publishes AI SDK ``text-delta`` chunks.
+        """
+        # Adapters that can't edit messages (e.g. QQ, some WeChat modes)
+        # skip streaming entirely — the base-class consumer would deliver
+        # a partial first message that couldn't be updated, producing
+        # duplicate messages at end-of-turn.
+        if not getattr(self, "SUPPORTS_MESSAGE_EDITING", True):
+            return None
+        # Local import to keep the stream_consumer module optional for
+        # callers that construct adapters without needing streaming.
+        from gateway.stream_consumer import GatewayStreamConsumer
+        return GatewayStreamConsumer(
+            adapter=self, chat_id=chat_id, config=config, metadata=metadata,
+        )
     
     def format_message(self, content: str) -> str:
         """

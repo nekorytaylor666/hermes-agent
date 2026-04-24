@@ -36,7 +36,7 @@ _HERMES_CORE_TOOLS = [
     # File manipulation
     "read_file", "write_file", "patch", "search_files",
     # Vision (image generation is handled by higgsfieldcli via terminal)
-    "vision_analyze",
+    "vision_analyze", "video_analyze",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
@@ -80,8 +80,8 @@ TOOLSETS = {
     },
     
     "vision": {
-        "description": "Image analysis and vision tools",
-        "tools": ["vision_analyze"],
+        "description": "Image and video analysis tools",
+        "tools": ["vision_analyze", "video_analyze"],
         "includes": []
     },
     
@@ -255,7 +255,7 @@ TOOLSETS = {
             "web_search", "web_extract",
             "terminal", "process",
             "read_file", "write_file", "patch", "search_files",
-            "vision_analyze",
+            "vision_analyze", "video_analyze",
             "skills_list", "skill_view", "skill_manage",
             "browser_navigate", "browser_snapshot", "browser_click",
             "browser_type", "browser_scroll", "browser_back",
@@ -278,7 +278,7 @@ TOOLSETS = {
             # File manipulation
             "read_file", "write_file", "patch", "search_files",
             # Vision (image generation is handled by higgsfieldcli via terminal)
-            "vision_analyze",
+            "vision_analyze", "video_analyze",
             # Skills
             "skills_list", "skill_view", "skill_manage",
             # Browser automation
@@ -429,10 +429,33 @@ TOOLSETS = {
         "includes": []
     },
 
+    # Narrow higgsclaw-parity whitelist for the Higgs (Redis/AI-SDK) platform.
+    # Omits the 30+ tools hermes ships with by default in favour of the
+    # tighter surface fnf-higgsclaw-agent exposes: file/grep/bash, web search
+    # + fetch, vision for image prompts, skills for procedural memory, the
+    # clarify tool for in-band user questions, and delegate_task for
+    # subagent fan-out.  No browser, no TTS, no image gen, no home-assistant
+    # — those come back as opt-in extras if a Higgs deployment wants them.
+    "hermes-higgs": {
+        "description": "Higgs bot toolset — narrow higgsclaw-parity whitelist for Redis/AI-SDK deployments",
+        "tools": [
+            "read_file", "write_file", "patch", "search_files",
+            "terminal", "process",
+            "web_search", "web_extract",
+            "vision_analyze",
+            "skills_list", "skill_view", "skill_manage",
+            "todo", "memory",
+            "session_search",
+            "clarify",
+            "delegate_task",
+        ],
+        "includes": []
+    },
+
     "hermes-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook"]
+        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-higgs"]
     }
 }
 

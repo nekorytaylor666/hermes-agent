@@ -1,15 +1,7 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import {
-  Send,
-  Square,
-  Wrench,
-  Brain,
-  Bot,
-  User,
-  ShieldAlert,
-} from "lucide-react";
+import { Send, Square, ShieldAlert } from "lucide-react";
 import { H2 } from "@nous-research/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,10 +25,104 @@ function getToken(): string | null {
     : null;
 }
 
+type RawFrame =
+  | { kind: "boundary"; ts: number; label: string }
+  | { kind: "frame"; ts: number; parsed: unknown; raw: string };
+
 export default function ChatPage() {
   const chatId = useMemo(() => crypto.randomUUID(), []);
   const [input, setInput] = useState("");
+  const [tab, setTab] = useState<"messages" | "raw">("messages");
+  const [rawFrames, setRawFrames] = useState<RawFrame[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Custom fetch that tees the SSE body: one branch flows to the AI SDK,
+  // the other gets parsed here into `rawFrames` for the debug tab.
+  const debugFetch = useMemo<typeof fetch>(
+    () => async (input, init) => {
+      const t0 = performance.now();
+      setRawFrames((prev) => [
+        ...prev,
+        {
+          kind: "boundary",
+          ts: 0,
+          label: `→ ${init?.method ?? "GET"} ${
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : (input as Request).url
+          }`,
+        },
+      ]);
+      const res = await fetch(input, init);
+      if (!res.body) return res;
+      const [a, b] = res.body.tee();
+      void (async () => {
+        const reader = b.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let sep: number;
+            while ((sep = buf.indexOf("\n\n")) !== -1) {
+              const frame = buf.slice(0, sep);
+              buf = buf.slice(sep + 2);
+              if (!frame) continue;
+              for (const line of frame.split("\n")) {
+                if (!line) continue;
+                const ts = performance.now() - t0;
+                if (line.startsWith("data: ")) {
+                  const json = line.slice(6);
+                  let parsed: unknown = json;
+                  try {
+                    parsed = JSON.parse(json);
+                  } catch {
+                    // leave as raw string
+                  }
+                  setRawFrames((prev) => [
+                    ...prev,
+                    { kind: "frame", ts, parsed, raw: line },
+                  ]);
+                } else {
+                  setRawFrames((prev) => [
+                    ...prev,
+                    { kind: "frame", ts, parsed: null, raw: line },
+                  ]);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          setRawFrames((prev) => [
+            ...prev,
+            {
+              kind: "boundary",
+              ts: performance.now() - t0,
+              label: `× tee reader error: ${String(err)}`,
+            },
+          ]);
+        }
+        setRawFrames((prev) => [
+          ...prev,
+          {
+            kind: "boundary",
+            ts: performance.now() - t0,
+            label: "← stream closed",
+          },
+        ]);
+      })();
+      return new Response(a, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: res.headers,
+      });
+    },
+    [],
+  );
 
   const transport = useMemo(
     () =>
@@ -46,8 +132,9 @@ export default function ChatPage() {
           const t = getToken();
           return t ? { Authorization: `Bearer ${t}` } : {};
         },
+        fetch: debugFetch,
       }),
-    [],
+    [debugFetch],
   );
 
   const { messages, sendMessage, status, stop, error } = useChat({
@@ -81,35 +168,69 @@ export default function ChatPage() {
         </span>
       </div>
 
+      <nav
+        role="tablist"
+        className="flex border border-current/20 border-b-0 text-[0.7rem] font-mono"
+      >
+        {(["messages", "raw"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "px-3 py-1.5 border-r border-current/20 cursor-pointer",
+              tab === t ? "bg-current/10" : "opacity-60 hover:opacity-100",
+            )}
+          >
+            {t === "messages"
+              ? `messages (${messages.length})`
+              : `raw stream (${rawFrames.filter((f) => f.kind === "frame").length})`}
+          </button>
+        ))}
+        {tab === "raw" && (
+          <button
+            type="button"
+            onClick={() => setRawFrames([])}
+            className="ml-auto px-3 py-1.5 border-l border-current/20 opacity-60 hover:opacity-100 cursor-pointer"
+          >
+            clear
+          </button>
+        )}
+      </nav>
+
       <div
         ref={scrollRef}
         className={cn(
           "flex-1 overflow-y-auto",
           "border border-current/20 bg-background-base/50",
           "px-3 sm:px-5 py-4",
-          "space-y-5",
+          tab === "messages" ? "space-y-5" : "space-y-1",
         )}
       >
-        {messages.length === 0 && !isStreaming && (
-          <div className="opacity-50 text-sm">
-            No messages yet. Send one below.
-          </div>
-        )}
-
-        {messages.map((m) => (
-          <MessageBlock key={m.id} message={m} />
-        ))}
-
-        {isStreaming && messages.at(-1)?.role !== "assistant" && (
-          <div className="opacity-60 text-xs tracking-[0.15em] animate-pulse">
-            · · ·
-          </div>
-        )}
-
-        {error && (
-          <div className="text-destructive text-sm border border-destructive/40 p-2">
-            {String(error.message ?? error)}
-          </div>
+        {tab === "messages" ? (
+          <>
+            {messages.length === 0 && !isStreaming && (
+              <div className="opacity-50 text-sm">
+                No messages yet. Send one below.
+              </div>
+            )}
+            {messages.map((m) => (
+              <MessageBlock key={m.id} message={m} />
+            ))}
+            {isStreaming && messages.at(-1)?.role !== "assistant" && (
+              <div className="opacity-60 text-xs tracking-[0.15em] animate-pulse">
+                · · ·
+              </div>
+            )}
+            {error && (
+              <div className="text-destructive text-sm border border-destructive/40 p-2">
+                {String(error.message ?? error)}
+              </div>
+            )}
+          </>
+        ) : (
+          <RawStreamView frames={rawFrames} />
         )}
       </div>
 
@@ -143,119 +264,398 @@ export default function ChatPage() {
   );
 }
 
-function MessageBlock({ message }: { message: UIMessage }) {
-  const isUser = message.role === "user";
-  return (
-    <div className="flex gap-3">
-      <div className="shrink-0 pt-0.5 opacity-70">
-        {isUser ? (
-          <User className="h-4 w-4" />
-        ) : (
-          <Bot className="h-4 w-4" />
-        )}
+function RawStreamView({ frames }: { frames: RawFrame[] }) {
+  if (frames.length === 0) {
+    return (
+      <div className="opacity-50 text-xs italic">
+        No frames yet. Send a message and they'll appear here as they arrive
+        from /api/chat.
       </div>
-      <div className="flex-1 min-w-0 space-y-2">
-        <div className="text-[0.65rem] uppercase tracking-[0.15em] opacity-50">
-          {isUser ? "You" : "Hermes"}
-        </div>
-        {message.parts.map((part, i) => (
-          <PartRenderer key={`${message.id}-${i}`} part={part} />
+    );
+  }
+  return (
+    <div className="space-y-0.5 font-mono text-[0.7rem]">
+      {frames.map((f, i) => {
+        if (f.kind === "boundary") {
+          return (
+            <div
+              key={i}
+              className="border-t border-current/30 my-2 py-1 uppercase tracking-[0.15em] opacity-70"
+            >
+              [{f.ts.toFixed(1).padStart(7)}ms] {f.label}
+            </div>
+          );
+        }
+        const parsedType =
+          f.parsed && typeof f.parsed === "object" && "type" in f.parsed
+            ? String((f.parsed as { type: unknown }).type)
+            : "—";
+        return (
+          <details key={i} className="border border-current/15">
+            <summary className="cursor-pointer px-2 py-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 bg-current/[.03]">
+              <span className="opacity-50">
+                #{i} [{f.ts.toFixed(1).padStart(7)}ms]
+              </span>
+              <code className="font-semibold">{parsedType}</code>
+              <span className="opacity-60 truncate max-w-full">
+                {f.parsed === null
+                  ? f.raw
+                  : typeof f.parsed === "string"
+                    ? f.parsed.slice(0, 120)
+                    : summarize(f.parsed)}
+              </span>
+            </summary>
+            <div className="px-2 py-1 border-t border-current/10">
+              <pre className="whitespace-pre-wrap break-words leading-snug overflow-x-auto">
+                {f.parsed === null
+                  ? f.raw
+                  : safeStringify(f.parsed)}
+              </pre>
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
+// Tiny one-line summary for a parsed part — surfaces ids / deltas so the
+// collapsed row is immediately informative.
+function summarize(v: unknown): string {
+  if (!v || typeof v !== "object") return String(v);
+  const o = v as Record<string, unknown>;
+  const bits: string[] = [];
+  if (typeof o.id === "string") bits.push(`id=${o.id.slice(0, 8)}`);
+  if (typeof o.messageId === "string")
+    bits.push(`messageId=${o.messageId.slice(0, 8)}`);
+  if (typeof o.toolCallId === "string")
+    bits.push(`toolCallId=${o.toolCallId.slice(0, 8)}`);
+  if (typeof o.toolName === "string") bits.push(`toolName=${o.toolName}`);
+  if (typeof o.delta === "string")
+    bits.push(
+      `delta=${JSON.stringify(o.delta.slice(0, 40))}${o.delta.length > 40 ? "…" : ""}`,
+    );
+  if (typeof o.errorText === "string") bits.push(`err=${o.errorText}`);
+  return bits.join(" ");
+}
+
+function MessageBlock({ message }: { message: UIMessage }) {
+  const m = message as unknown as Record<string, unknown>;
+  const { id, role, parts, ...rest } = m;
+  const partsArr = (parts as unknown[]) ?? [];
+  return (
+    <section className="border border-current/25">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-2 py-1 bg-current/5 text-[0.7rem] font-mono">
+        <span className="uppercase tracking-[0.15em] opacity-80">
+          {String(role)}
+        </span>
+        <span className="opacity-60">id=</span>
+        <code className="break-all">{String(id)}</code>
+        <span className="opacity-60">parts={partsArr.length}</span>
+        {Object.keys(rest).length > 0 && (
+          <details className="basis-full">
+            <summary className="cursor-pointer opacity-60">
+              message meta ({Object.keys(rest).length})
+            </summary>
+            <Json value={rest} />
+          </details>
+        )}
+      </header>
+      <div className="p-2 space-y-2">
+        {partsArr.length === 0 && (
+          <div className="opacity-50 text-xs italic">(no parts)</div>
+        )}
+        {partsArr.map((part, i) => (
+          <PartRenderer key={`${String(id)}-${i}`} part={part} index={i} />
         ))}
+      </div>
+    </section>
+  );
+}
+
+function PartRenderer({ part, index }: { part: unknown; index: number }) {
+  const p = (part ?? {}) as Record<string, unknown>;
+  const type = String(p.type ?? "(unknown)");
+
+  // ── Text ────────────────────────────────────────────────────────────
+  if (type === "text") {
+    const { type: _t, text, state, ...rest } = p;
+    void _t;
+    return (
+      <PartFrame index={index} type={type} extras={{ state }} rest={rest}>
+        <pre className="whitespace-pre-wrap text-sm font-sans">
+          {String(text ?? "")}
+        </pre>
+      </PartFrame>
+    );
+  }
+
+  // ── Reasoning — <details> accordion per spec ────────────────────────
+  if (type === "reasoning") {
+    const { type: _t, text, state, ...rest } = p;
+    void _t;
+    return (
+      <PartFrame index={index} type={type} extras={{ state }} rest={rest}>
+        <details>
+          <summary className="cursor-pointer text-xs opacity-70">
+            reasoning text ({String(text ?? "").length} chars)
+          </summary>
+          <pre className="whitespace-pre-wrap text-xs opacity-80 pt-1">
+            {String(text ?? "")}
+          </pre>
+        </details>
+      </PartFrame>
+    );
+  }
+
+  // ── Tools + any dynamic-* part — tabs for input / output / rest ────
+  if (type.startsWith("tool-") || type.startsWith("dynamic-")) {
+    return <ToolPart part={p} type={type} index={index} />;
+  }
+
+  // ── data-approval — keep the approval UX actionable ─────────────────
+  if (type === "data-approval") {
+    const data = (p.data as ApprovalData | undefined) ?? undefined;
+    const { type: _t, data: _d, ...rest } = p;
+    void _t;
+    void _d;
+    return (
+      <PartFrame index={index} type={type} rest={rest}>
+        {data ? (
+          <>
+            <div className="text-[0.65rem] font-mono opacity-70 mb-1">
+              approvalId=<code>{data.approvalId}</code>
+            </div>
+            <ApprovalCard data={data} />
+          </>
+        ) : (
+          <div className="opacity-50 text-xs italic">(no data)</div>
+        )}
+      </PartFrame>
+    );
+  }
+
+  // ── data-status ─────────────────────────────────────────────────────
+  if (type === "data-status") {
+    const data = (p.data as StatusData | undefined) ?? undefined;
+    const { type: _t, data: _d, ...rest } = p;
+    void _t;
+    void _d;
+    return (
+      <PartFrame index={index} type={type} rest={rest}>
+        {data ? (
+          <div className="text-xs font-mono">
+            <span className="opacity-60">lifecycle=</span>
+            {data.lifecycle}
+            <span className="opacity-60"> · message=</span>
+            {data.message}
+          </div>
+        ) : (
+          <div className="opacity-50 text-xs italic">(no data)</div>
+        )}
+      </PartFrame>
+    );
+  }
+
+  // ── Any other data-* — surface `.data` + `id` prominently ───────────
+  if (type.startsWith("data-")) {
+    const { type: _t, data, id, ...rest } = p;
+    void _t;
+    const extras: Record<string, unknown> = {};
+    if (id !== undefined) extras.id = id;
+    return (
+      <PartFrame index={index} type={type} extras={extras} rest={rest}>
+        {data === undefined ? (
+          <div className="opacity-50 text-xs italic">(no data payload)</div>
+        ) : (
+          <Json value={data} />
+        )}
+      </PartFrame>
+    );
+  }
+
+  // ── file / source-* ─────────────────────────────────────────────────
+  if (type === "file" || type.startsWith("source-")) {
+    const { type: _t, ...rest } = p;
+    void _t;
+    return (
+      <PartFrame index={index} type={type} rest={rest}>
+        <Json value={rest} />
+      </PartFrame>
+    );
+  }
+
+  // ── Fallback: dump every field verbatim ─────────────────────────────
+  const { type: _t, ...rest } = p;
+  void _t;
+  return (
+    <PartFrame index={index} type={type} rest={rest}>
+      <Json value={rest} />
+    </PartFrame>
+  );
+}
+
+// Wraps every part with a consistent debug header: index, type, any
+// caller-supplied extras (e.g. state), and a collapsible raw-JSON dump.
+function PartFrame({
+  index,
+  type,
+  extras,
+  rest,
+  children,
+}: {
+  index: number;
+  type: string;
+  extras?: Record<string, unknown>;
+  rest?: Record<string, unknown>;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border border-current/20">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-2 py-1 bg-current/[.03] text-[0.7rem] font-mono">
+        <span className="opacity-50">#{index}</span>
+        <code className="font-semibold">{type}</code>
+        {extras &&
+          Object.entries(extras)
+            .filter(([, v]) => v !== undefined && v !== null)
+            .map(([k, v]) => (
+              <span key={k}>
+                <span className="opacity-60">{k}=</span>
+                <code>{String(v)}</code>
+              </span>
+            ))}
+      </header>
+      <div className="p-2">{children}</div>
+      {rest && Object.keys(rest).length > 0 && (
+        <details className="border-t border-current/10">
+          <summary className="cursor-pointer px-2 py-1 text-[0.65rem] font-mono opacity-60">
+            part raw ({Object.keys(rest).length} fields)
+          </summary>
+          <div className="p-2 border-t border-current/10">
+            <Json value={rest} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+// Tool part with input / output / rest tabs.
+function ToolPart({
+  part,
+  type,
+  index,
+}: {
+  part: Record<string, unknown>;
+  type: string;
+  index: number;
+}) {
+  type Tab = "input" | "output" | "rest";
+  const [tab, setTab] = useState<Tab>("input");
+
+  const toolName =
+    (part.toolName as string | undefined) ??
+    (type.startsWith("tool-") ? type.slice("tool-".length) : type);
+  const toolCallId = part.toolCallId as string | undefined;
+  const state = part.state as string | undefined;
+  const input = part.input;
+  const output = part.output;
+  const errorText = part.errorText as string | undefined;
+
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(part)) {
+    if (
+      k !== "type" &&
+      k !== "toolName" &&
+      k !== "toolCallId" &&
+      k !== "state" &&
+      k !== "input" &&
+      k !== "output" &&
+      k !== "errorText"
+    ) {
+      rest[k] = v;
+    }
+  }
+
+  return (
+    <div className="border border-current/20">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-2 py-1 bg-current/[.03] text-[0.7rem] font-mono">
+        <span className="opacity-50">#{index}</span>
+        <code className="font-semibold">{type}</code>
+        <span>
+          <span className="opacity-60">toolName=</span>
+          <code>{toolName}</code>
+        </span>
+        {toolCallId && (
+          <span>
+            <span className="opacity-60">toolCallId=</span>
+            <code className="break-all">{toolCallId}</code>
+          </span>
+        )}
+        {state && (
+          <span>
+            <span className="opacity-60">state=</span>
+            <code>{state}</code>
+          </span>
+        )}
+      </header>
+      <nav
+        role="tablist"
+        className="flex gap-0 border-t border-current/10 text-[0.7rem] font-mono"
+      >
+        {(["input", "output", "rest"] as const).map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "px-2 py-1 border-r border-current/10 cursor-pointer",
+              tab === t ? "bg-current/10" : "opacity-60 hover:opacity-100",
+            )}
+          >
+            {t}
+          </button>
+        ))}
+      </nav>
+      <div className="p-2 border-t border-current/10">
+        {tab === "input" &&
+          (input === undefined ? (
+            <div className="opacity-50 text-xs italic">(no input yet)</div>
+          ) : (
+            <Json value={input} />
+          ))}
+        {tab === "output" && (
+          <>
+            {errorText && (
+              <pre className="whitespace-pre-wrap text-xs text-destructive mb-1">
+                {errorText}
+              </pre>
+            )}
+            {output === undefined && !errorText ? (
+              <div className="opacity-50 text-xs italic">(no output yet)</div>
+            ) : output !== undefined ? (
+              <Json value={output} />
+            ) : null}
+          </>
+        )}
+        {tab === "rest" &&
+          (Object.keys(rest).length === 0 ? (
+            <div className="opacity-50 text-xs italic">(no other fields)</div>
+          ) : (
+            <Json value={rest} />
+          ))}
       </div>
     </div>
   );
 }
 
-function PartRenderer({ part }: { part: UIMessage["parts"][number] }) {
-  // Text — the most common part.
-  if (part.type === "text") {
-    return (
-      <div className="whitespace-pre-wrap leading-relaxed text-sm">
-        {part.text}
-      </div>
-    );
-  }
-
-  // Reasoning — model's chain-of-thought, shown as a muted block.
-  if (part.type === "reasoning") {
-    return (
-      <details className="text-xs border border-current/15 pl-2">
-        <summary className="cursor-pointer py-1 flex items-center gap-1.5 opacity-60">
-          <Brain className="h-3 w-3" />
-          Reasoning
-        </summary>
-        <div className="whitespace-pre-wrap opacity-70 pt-1 pb-2">
-          {part.text}
-        </div>
-      </details>
-    );
-  }
-
-  // Custom data parts.  The backend emits `data-status` with a StatusData
-  // payload for lifecycle events (retries, fallbacks, interrupts).
-  if (part.type === "data-status") {
-    const data = (part as { data?: StatusData }).data;
-    if (!data) return null;
-    return (
-      <div className="text-[0.65rem] uppercase tracking-[0.15em] opacity-50">
-        {data.message}
-      </div>
-    );
-  }
-
-  // Dangerous-command approval — the user must click Once / Session /
-  // Always / Deny to resolve it before the agent can proceed.  Mirrors
-  // Telegram's inline-keyboard approval flow.
-  if (part.type === "data-approval") {
-    const data = (part as { data?: ApprovalData }).data;
-    if (!data) return null;
-    return <ApprovalCard data={data} />;
-  }
-
-  // Tool parts — in AI SDK v6 the part type is `tool-<name>` or
-  // `dynamic-tool` (for dynamically-registered tools).  We render both
-  // through a single card.
-  if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
-    const tp = part as unknown as {
-      type: string;
-      toolName?: string;
-      toolCallId?: string;
-      state?: string;
-      input?: unknown;
-      output?: unknown;
-      errorText?: string;
-    };
-    const name = tp.toolName ?? tp.type.replace(/^tool-/, "");
-    const state = tp.state ?? "input-streaming";
-    return (
-      <div className="border border-current/20 text-xs">
-        <div className="flex items-center gap-2 px-2 py-1 bg-current/5">
-          <Wrench className="h-3 w-3" />
-          <span className="font-mondwest tracking-[0.1em]">{name}</span>
-          <span className="ml-auto opacity-50 text-[0.65rem] tracking-[0.15em]">
-            {state}
-          </span>
-        </div>
-        {tp.input !== undefined && (
-          <pre className="px-2 py-1 overflow-x-auto text-[0.7rem] opacity-75 border-t border-current/10">
-            {safeStringify(tp.input)}
-          </pre>
-        )}
-        {tp.output !== undefined && (
-          <pre className="px-2 py-1 overflow-x-auto text-[0.7rem] border-t border-current/10 max-h-64">
-            {safeStringify(tp.output)}
-          </pre>
-        )}
-        {tp.errorText && (
-          <div className="px-2 py-1 text-destructive border-t border-current/10">
-            {tp.errorText}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return null;
+function Json({ value }: { value: unknown }) {
+  return (
+    <pre className="whitespace-pre-wrap break-words text-[0.7rem] font-mono leading-snug overflow-x-auto">
+      {safeStringify(value)}
+    </pre>
+  );
 }
 
 function safeStringify(v: unknown): string {

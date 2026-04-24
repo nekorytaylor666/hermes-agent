@@ -312,9 +312,11 @@ class TestBuiltinDiscovery:
             "tools.session_search_tool",
             "tools.skill_manager_tool",
             "tools.skills_tool",
+            "tools.spotify_tool",
             "tools.terminal_tool",
             "tools.todo_tool",
             "tools.tts_tool",
+            "tools.video_tools",
             "tools.vision_tools",
             "tools.web_tools",
         }

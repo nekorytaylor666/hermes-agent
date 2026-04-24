@@ -120,7 +120,7 @@ SEND_MESSAGE_SCHEMA = {
             },
             "target": {
                 "type": "string",
-                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org'"
+                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'higgs:<chat-uuid>' (Redis streams / AI SDK)"
             },
             "message": {
                 "type": "string",
@@ -215,6 +215,7 @@ def _handle_send(args):
         "weixin": Platform.WEIXIN,
         "email": Platform.EMAIL,
         "sms": Platform.SMS,
+        "higgs": Platform.HIGGS,
     }
     platform = platform_map.get(platform_name)
     if not platform:
@@ -571,6 +572,8 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             result = await _send_bluebubbles(pconfig.extra, chat_id, chunk)
         elif platform == Platform.QQBOT:
             result = await _send_qqbot(pconfig, chat_id, chunk)
+        elif platform == Platform.HIGGS:
+            result = await _send_higgs(pconfig.extra, chat_id, chunk)
         else:
             result = {"error": f"Direct sending not yet implemented for {platform.value}"}
 
@@ -1508,6 +1511,103 @@ async def _send_qqbot(pconfig, chat_id, message):
                 return _error(f"QQBot send failed: {resp.status_code} {resp.text}")
     except Exception as e:
         return _error(f"QQBot send failed: {e}")
+
+
+async def _send_higgs(extra: dict, chat_id: str, message: str) -> dict:
+    """Standalone XADD to a Higgs chat's output stream + notify fan-in.
+
+    Used by the send_message tool and by cron delivery when the gateway
+    isn't available to the caller.  Opens a short-lived Redis connection,
+    publishes a ``text-block`` (text-start / text-delta / text-end), and
+    closes.
+
+    Expects ``extra`` to carry the Redis connection params that the
+    gateway adapter would see — host/port/db/ssl/password, plus
+    ``stream_prefix``.  Missing keys fall back to env vars so this works
+    both in-gateway (config hydrated) and out-of-gateway (env only, like
+    a cron pod that only has .env).
+    """
+    import json
+
+    try:
+        import redis.asyncio as aioredis
+        from redis.asyncio.connection import ConnectionPool, SSLConnection
+    except ImportError:
+        return _error(
+            "Higgs send requires the 'redis' package. "
+            "Run: pip install 'hermes-agent[higgs]'"
+        )
+
+    try:
+        from gateway import ui_chunks
+    except Exception as e:
+        return _error(f"Higgs send: ui_chunks import failed: {e}")
+
+    host = (extra or {}).get("host") or os.getenv("REDIS_HOST") or "localhost"
+    try:
+        port = int((extra or {}).get("port") or os.getenv("REDIS_PORT") or 6379)
+    except (TypeError, ValueError):
+        port = 6379
+    try:
+        db = int((extra or {}).get("db") or os.getenv("REDIS_DB") or 0)
+    except (TypeError, ValueError):
+        db = 0
+    password = (extra or {}).get("password") or os.getenv("REDIS_PASSWORD")
+    ssl_flag = (extra or {}).get("ssl")
+    if ssl_flag is None:
+        ssl_flag = str(os.getenv("REDIS_SSL", "")).strip().lower() in ("1", "true", "yes", "on")
+    prefix = (extra or {}).get("stream_prefix") or os.getenv("STREAM_PREFIX") or "higgs"
+
+    pool_kwargs: dict = {
+        "host": host,
+        "port": port,
+        "db": db,
+        "password": password or None,
+        "decode_responses": True,
+        "socket_timeout": 5.0,
+        "socket_connect_timeout": 5.0,
+    }
+    if ssl_flag:
+        pool_kwargs["connection_class"] = SSLConnection
+        pool_kwargs["ssl_cert_reqs"] = "none"
+
+    pool = ConnectionPool(**pool_kwargs)
+    redis_client = aioredis.Redis(connection_pool=pool)
+
+    try:
+        await redis_client.ping()
+        out_key = f"{prefix}:{chat_id}:output"
+        notify_key = f"{prefix}:notify"
+
+        chunks = ui_chunks.text_block(message)
+        pipe = redis_client.pipeline(transaction=False)
+        for chunk in chunks:
+            pipe.xadd(
+                out_key,
+                {"chunk": json.dumps(chunk, ensure_ascii=False)},
+                maxlen=1000,
+                approximate=True,
+            )
+        pipe.xadd(notify_key, {"chat_id": chat_id}, maxlen=10000, approximate=True)
+        results = await pipe.execute()
+        last_msg_id = str(results[-2]) if len(results) >= 2 else None
+        return {
+            "success": True,
+            "platform": "higgs",
+            "chat_id": chat_id,
+            "message_id": last_msg_id,
+        }
+    except Exception as e:
+        return _error(f"Higgs send failed: {e}")
+    finally:
+        try:
+            await redis_client.aclose()
+        except Exception:
+            pass
+        try:
+            await pool.disconnect()
+        except Exception:
+            pass
 
 
 # --- Registry ---

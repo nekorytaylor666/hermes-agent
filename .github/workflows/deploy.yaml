@@ -1,0 +1,84 @@
+name: Deploy
+run-name: Deploy to ${{ (startsWith(github.ref, 'refs/tags/')) && 'Prod' || 'Dev' }}
+
+# Mirrors fnf-higgsclaw-agent/.github/workflows/deploy.yaml so the fork's
+# images land in the same registry / arc runner pool as the other
+# Higgsfield agent services.  Build runs on every push to main + every
+# `v*` tag; deploy jobs stay commented out until the helm chart lands
+# (tracked separately — no helm/ folder in this repo yet).
+#
+# This workflow coexists with the ten NousResearch workflows on this
+# branch, which are all set to `on: workflow_dispatch` by commit
+# 6539107a ("ci: disable auto-triggered workflows for Higgsfield fork") —
+# none of them fire automatically, so there's no collision with this
+# fresh Higgsfield-specific pipeline.
+
+concurrency:
+  # One deploy per ref at a time.  `cancel-in-progress: false` means a
+  # slower run finishes even if a fresher push arrives — correct for
+  # deploys; the alternative would cancel an image build half-way and
+  # leave stale layers in the registry.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-hermes-agent:
+    name: Build Hermes Agent
+    if: >-
+      ${{
+        github.ref_name == 'main' ||
+        startsWith(github.ref, 'refs/tags/')
+      }}
+    runs-on: arc-runners-backend
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+      image-tag: ${{ steps.build.outputs.image-tag }}
+    steps:
+      - uses: higgsfield-ai/actions-v2/build@develop
+        id: build
+        with:
+          # Uses the same raw-.py Dockerfile.dev that the Higgs / fnf
+          # deployment expects.  Entrypoint defaults to `hermes gateway
+          # run` and the Higgs-mode branch in docker/entrypoint.sh
+          # auto-engages when CHAT_ID + REDIS_HOST are set at pod start.
+          dockerfile-path: 'Dockerfile.dev'
+          build-context: '.'
+          # Multi-arch so the orchestrator can schedule onto either the
+          # amd64 or arm64 node pool without re-pulling.
+          platforms: 'linux/amd64, linux/arm64'
+
+#  deploy-dev-hermes-agent:
+#    name: Deploy Hermes Agent to Dev
+#    if: ${{ github.ref_name == 'main' }}
+#    runs-on: arc-runners-backend
+#    needs: build-hermes-agent
+#    steps:
+#      - uses: higgsfield-ai/actions-v2/deploy@develop
+#        with:
+#          aws-eks-cluster: 'dev-fnf-eks-cluster'
+#          environment: dev
+#          image: ${{ needs.build-hermes-agent.outputs.image }}
+#          helm-folder: './helm'
+#          subchart-name: 'common'
+#
+#  deploy-prod-hermes-agent:
+#    name: Deploy Hermes Agent to Prod
+#    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+#    runs-on: arc-runners-backend
+#    needs: build-hermes-agent
+#    steps:
+#      - uses: higgsfield-ai/actions-v2/deploy@develop
+#        with:
+#          aws-eks-cluster: 'prod-fnf-eks-cluster'
+#          environment: prod
+#          image: ${{ needs.build-hermes-agent.outputs.image }}
+#          helm-folder: './helm'
+#          subchart-name: 'common'

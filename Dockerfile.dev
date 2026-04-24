@@ -1,0 +1,203 @@
+# syntax=docker/dockerfile:1
+#
+# Dev Dockerfile — ships raw .py source (no compilation) with a multi-stage
+# build that layer-caches Python + web-UI deps separately from project code.
+# Use the production `Dockerfile` for the compiled-extension variant.
+#
+# Shape follows fnf-higgsclaw-agent's Dockerfile.dev (builder + runtime,
+# cache-mounted uv sync, pip-in-venv shim, bin/ shipped system-wide) but
+# keeps Hermes' debian:13.4 base, tini, gosu UID remap, and entrypoint.sh
+# bootstrap — those are earned by Hermes' broader agent surface (Playwright,
+# docker-cli nested sandbox, volume-mounted $HERMES_HOME, MCP stdio subprocs).
+#
+# Shared debian:13.4 between builder and runtime keeps /usr/bin/python3 at
+# the same path on both sides so the builder's .venv shebangs / symlinks
+# stay valid across the COPY boundary without interpreter re-rooting.
+
+FROM ghcr.io/astral-sh/uv:0.11.6-python3.13-trixie@sha256:b3c543b6c4f23a5f2df22866bd7857e5d304b67a564f4feab6ac22044dde719b AS uv_source
+FROM tianon/gosu:1.19-trixie@sha256:3b176695959c71e123eb390d427efc665eeb561b1540e82679c15e992006b8b9 AS gosu_source
+
+# ============================================================================
+# Builder — install Python deps into /opt/hermes/.venv + build the web UI
+# ============================================================================
+FROM debian:13.4 AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_PYTHON_PREFERENCE=only-system \
+    UV_PYTHON=/usr/bin/python3 \
+    UV_LINK_MODE=copy
+
+COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+
+# Build toolchain: gcc / python3-dev / libffi-dev for native wheels that
+# lack prebuilt binaries on debian/arm64.  nodejs+npm build the Vite
+# dashboard into hermes_cli/web_dist so the runtime stage doesn't need
+# Node available just to serve the SPA.
+#
+# libolm-dev: required by python-olm (pulled in via mautrix[encryption]
+# through the [matrix] extra, which [all] includes on Linux).  Without
+# it the ld step for python-olm's C extension fails with:
+#     /usr/bin/ld: cannot find -lolm: No such file or directory
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-dev \
+        build-essential gcc \
+        libffi-dev \
+        libolm-dev \
+        ca-certificates curl git \
+        nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/hermes
+
+# ----- Dependency layer ------------------------------------------------------
+# Only manifests, so the uv cache stays valid until pyproject.toml /
+# uv.lock changes (not when run_agent.py changes).
+COPY pyproject.toml uv.lock ./
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev --extra all
+
+# Web UI manifests cached separately from the Python ones.
+COPY package.json package-lock.json* ./
+COPY web/package.json web/package-lock.json* web/
+
+RUN npm install --prefer-offline --no-audit && \
+    (cd web && npm install --prefer-offline --no-audit) && \
+    npm cache clean --force
+
+# ----- Source layer ----------------------------------------------------------
+# Copy the rest of the tree; this is the layer that busts on code edits.
+# .dockerignore keeps node_modules + .venv out of the build context so
+# the earlier install layers survive.
+COPY . .
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra all
+
+# pip/setuptools/wheel inside the venv so agent Bash can shell out to
+# `pip install …` without surprises.  uv omits pip from its venvs by
+# default (leaner by ~10 MB) — we trade that for one fewer class of
+# agent failure when a skill script assumes pip exists.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /opt/hermes/.venv/bin/python pip setuptools wheel
+
+# Build the Vite dashboard into hermes_cli/web_dist (vite.config.ts
+# outDir points at ../hermes_cli/web_dist).
+RUN cd web && npm run build
+
+# ============================================================================
+# Runtime — debian:13.4 with agent shell tools, tini, gosu, prebuilt .venv
+# ============================================================================
+FROM debian:13.4
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEVCONTAINER=true \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright \
+    HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist \
+    HERMES_HOME=/opt/data \
+    PATH=/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Runtime system tools.  Groupings mirror fnf-higgsclaw-agent's reference
+# image so any CLI the agent's Bash reaches for is present out of the box.
+# tini reaps orphaned zombie children (MCP stdio subprocs, git, bun, etc.)
+# which would otherwise accumulate when hermes runs as PID 1 (see #15012).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        # Python interpreter — must exist at /usr/bin/python3 to match the
+        # builder's venv symlinks.  Debian 13 Trixie ships 3.13.
+        python3 \
+        # useradd/groupmod/usermod — not in debian:13.4 base; required by
+        # the `useradd hermes` step below and by entrypoint.sh's HERMES_UID
+        # remap.
+        passwd \
+        # libolm runtime — builder linked python-olm against libolm-dev;
+        # the resulting _libolm.abi3.so needs libolm.so.3 at import time.
+        # (dev-less package name; <1 MB.)
+        libolm3 \
+        # init + zombie reaping
+        tini \
+        # core
+        ca-certificates curl wget git gh \
+        # archives
+        unzip zip xz-utils \
+        # text / data
+        jq less vim-tiny bc tree ripgrep \
+        # network
+        iputils-ping dnsutils netcat-openbsd lsof procps \
+        # media
+        ffmpeg imagemagick \
+        # node — needed at runtime for Playwright install helpers and
+        # for npx-based MCP servers the agent may spawn
+        nodejs npm \
+        # container + ssh (for the terminal tool's nested-docker mode and
+        # git clones over ssh)
+        openssh-client docker-cli \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+        -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
+    && ln -sf /usr/bin/vim.tiny /usr/local/bin/vim \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+COPY --chmod=0755 --from=gosu_source /gosu /usr/local/bin/
+
+# Non-root runtime user.  UID remappable at container start via HERMES_UID
+# (see docker/entrypoint.sh) so host-side volume ownership matches.
+RUN useradd -u 10000 -m -d /opt/data hermes
+
+WORKDIR /opt/hermes
+
+# Prebuilt venv from the builder stage.  debian:13.4 → debian:13.4 keeps
+# the Python interpreter path identical (/usr/bin/python3), so venv
+# symlinks continue to resolve without interpreter re-rooting.
+COPY --from=builder --chown=hermes:hermes /opt/hermes/.venv /opt/hermes/.venv
+
+# Raw .py source — no Cython / PyO3 compile step.
+COPY --chown=hermes:hermes . .
+
+# Prebuilt Vite dashboard overlaid on top of the source tree (clean
+# checkouts don't contain hermes_cli/web_dist).
+COPY --from=builder --chown=hermes:hermes /opt/hermes/hermes_cli/web_dist /opt/hermes/hermes_cli/web_dist
+
+# Make fork-shipped CLIs (higgsfieldcli, instagramcli, adscli, tiktokcli,
+# trendscli, youtubecli) globally available on PATH.  Symlinks rather
+# than copies so `bin/` stays the single source of truth for updates.
+RUN if [ -d /opt/hermes/bin ]; then \
+        find /opt/hermes/bin -maxdepth 1 -type f -executable \
+            -exec ln -sf {} /usr/local/bin/ \; ; \
+    fi
+
+# Playwright chromium (shell-only, headless) into PLAYWRIGHT_BROWSERS_PATH
+# so the build-time install survives the /opt/data volume overlay at
+# runtime.  --with-deps re-pulls apt so we update lists, install, then
+# clean.  Tolerates missing playwright dep (leaner --no-extras builds).
+# RUN set -eux; \
+#     if /opt/hermes/.venv/bin/python -c "import playwright" 2>/dev/null; then \
+#         apt-get update; \
+#         /opt/hermes/.venv/bin/python -m playwright install --with-deps chromium --only-shell; \
+#         rm -rf /var/lib/apt/lists/*; \
+#     else \
+#         echo "playwright not in venv — browser_tool disabled in this build"; \
+#     fi
+
+# World-readable install tree so any runtime HERMES_UID can traverse it.
+# The venv needs to be traversable too (entrypoint sources .venv/bin/activate).
+RUN chmod -R a+rX /opt/hermes
+
+VOLUME [ "/opt/data" ]
+
+# Entry flow: tini (pid 1, zombie reaper) → entrypoint.sh (uid remap +
+# $HERMES_HOME bootstrap + gosu to hermes user) → `hermes <args>` or the
+# first positional arg if it resolves on PATH.
+ENTRYPOINT [ "/usr/bin/tini", "-g", "--", "/opt/hermes/docker/entrypoint.sh" ]
+
+# Default command: run the gateway in the foreground.  When CHAT_ID +
+# REDIS_HOST are set, the Higgs adapter connects to Redis, joins the
+# consumer group on `<prefix>:<chat_id>:input`, and publishes AI SDK
+# UIMessageChunks to `<prefix>:<chat_id>:output` with a fan-in on
+# `<prefix>:notify`.  Override by passing a different subcommand:
+#   docker run <image> chat           → interactive CLI
+#   docker run <image> dashboard      → web dashboard
+#   docker run <image> bash           → shell (matches /bin/bash on PATH)
+CMD [ "gateway", "run" ]
