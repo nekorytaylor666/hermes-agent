@@ -1,14 +1,9 @@
 name: Contributor Attribution Check
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      # Only run when code files change (not docs-only PRs)
-      - '*.py'
-      - '**/*.py'
-      - '.github/workflows/contributor-check.yml'
-
+  workflow_dispatch:
 permissions:
   contents: read
 

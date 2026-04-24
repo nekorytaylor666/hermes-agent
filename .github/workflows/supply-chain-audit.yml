@@ -1,17 +1,9 @@
 name: Supply Chain Audit
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - '**/*.py'
-      - '**/*.pth'
-      - '**/setup.py'
-      - '**/setup.cfg'
-      - '**/sitecustomize.py'
-      - '**/usercustomize.py'
-      - '**/__init__.pth'
-
+  workflow_dispatch:
 permissions:
   pull-requests: write
   contents: read

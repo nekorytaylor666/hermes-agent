@@ -1,12 +1,9 @@
 name: Docs Site Checks
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  pull_request:
-    paths:
-      - 'website/**'
-      - '.github/workflows/docs-site-checks.yml'
   workflow_dispatch:
-
 permissions:
   contents: read
 
@@ -35,6 +32,9 @@ jobs:
 
       - name: Extract skill metadata for dashboard
         run: python3 website/scripts/extract-skills.py
+
+      - name: Regenerate per-skill docs pages + catalogs
+        run: python3 website/scripts/generate-skill-docs.py
 
       - name: Lint docs diagrams
         run: npm run lint:diagrams
