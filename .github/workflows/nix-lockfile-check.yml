@@ -1,9 +1,9 @@
 name: Nix Lockfile Check
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
   pull-requests: write

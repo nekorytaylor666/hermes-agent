@@ -1,10 +1,9 @@
 name: Nix
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  push:
-    branches: [main]
-  pull_request:
-
+  workflow_dispatch:
 permissions:
   contents: read
 
