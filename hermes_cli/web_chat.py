@@ -113,10 +113,22 @@ class UIMessageStreamWriter:
         args: Dict[str, Any],
         result: Any,
     ) -> None:
+        # Hermes tool handlers return JSON strings (tool_result / tool_error
+        # both call json.dumps). Parse back to a native object so the UI
+        # receives structured output instead of a stringified blob. Any
+        # tool that returns plain text (non-JSON) passes through unchanged.
+        output: Any = result
+        if isinstance(result, str):
+            stripped = result.strip()
+            if stripped and stripped[0] in "{[":
+                try:
+                    output = json.loads(result)
+                except (ValueError, TypeError):
+                    output = result
         self._emit({
             "type": "tool-output-available",
             "toolCallId": call_id,
-            "output": _json_safe(result),
+            "output": _json_safe(output),
         })
 
     def on_status(self, lifecycle: str, message: str) -> None:

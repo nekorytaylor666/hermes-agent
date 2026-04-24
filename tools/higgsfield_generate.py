@@ -4,14 +4,11 @@ Native Python port of ``higgsfieldcli generate --json``. Talks directly to
 ``FNF_BASE_URL`` via HTTP using the auth headers defined in
 ``higgsfieldcli/internal/api/client.go``.
 
-Default is **non-blocking** — the tool returns job IDs within seconds and
-the agent announces "generation started". Callers that genuinely need the
-URL inline pass ``async=false`` to block on polling.
-
-Modes:
-- **Single** — top-level ``model`` + per-model fields.
-- **Batch** — ``requests: [ {model, ...}, ... ]``. Submissions fan out across
-  a thread pool (``concurrency`` workers, default 8).
+**Always batch-shaped.** The tool takes ``requests: [ {model, ...}, ... ]``
+even for a single image. Submissions fan out across a thread pool
+(``concurrency`` workers, default 8). Non-blocking by default — returns job
+IDs within seconds so the chat stays responsive. Caller passes
+``async=false`` only when they genuinely want the result inline.
 
 Poll later via ``higgsfield_job_status`` with the returned ``job_ids``.
 """
@@ -114,56 +111,11 @@ def _poll_many(
 
 
 # ---------------------------------------------------------------------------
-# Single-request path (backwards compatible)
+# Batch (the only mode)
 # ---------------------------------------------------------------------------
 
 
-def _single_mode(
-    client: HiggsfieldClient,
-    args: dict,
-    *,
-    folder_id: str,
-    async_submit: bool,
-    interval: float,
-    timeout: float,
-    concurrency: int,
-) -> dict[str, Any]:
-    try:
-        submission = _submit_one(client, args, folder_id=folder_id)
-    except ValueError as exc:
-        raise HiggsfieldError(str(exc)) from exc
-
-    payload: dict[str, Any] = {
-        "job_set_id": submission["job_set_id"],
-        "job_set_type": submission["job_set_type"],
-        "job_ids": submission["job_ids"],
-    }
-    if async_submit:
-        payload["status"] = "created"
-        return payload
-
-    jobs = _poll_many(
-        client,
-        submission["job_ids"],
-        interval=interval,
-        timeout=timeout,
-        concurrency=concurrency,
-    )
-    payload["jobs"] = jobs
-    if len(jobs) == 1:
-        j = jobs[0]
-        payload["status"] = j.get("status", "")
-        if "result" in j:
-            payload["result"] = j["result"]
-    return payload
-
-
-# ---------------------------------------------------------------------------
-# Batch path
-# ---------------------------------------------------------------------------
-
-
-def _batch_mode(
+def _run_batch(
     client: HiggsfieldClient,
     requests: list[dict],
     *,
@@ -173,8 +125,6 @@ def _batch_mode(
     timeout: float,
     concurrency: int,
 ) -> dict[str, Any]:
-    if not requests:
-        raise HiggsfieldError("\"requests\" must be a non-empty array")
     workers = max(1, min(concurrency, len(requests)))
 
     def _submit(idx_req):
@@ -201,19 +151,25 @@ def _batch_mode(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         submissions = list(pool.map(_submit, enumerate(requests)))
 
-    payload: dict[str, Any] = {"submissions": submissions}
-
-    if async_submit:
-        return payload
-
-    # Blocking: fan out polling across all job_ids from all successful submissions.
+    # Flatten into a simple {job_ids: [...]}; per-item errors go in a separate
+    # list only when something failed. Keeps the tool output tight so the LLM
+    # sees one obvious field to hand to higgsfield_job_status later.
     job_ids: list[str] = []
-    index_for_job: dict[str, int] = {}
+    errors: list[dict] = []
     for sub in submissions:
+        if "error" in sub:
+            errors.append({"index": sub.get("index"), "error": sub["error"]})
+            continue
         for jid in sub.get("job_ids") or []:
             job_ids.append(jid)
-            index_for_job[jid] = sub["index"]
 
+    if async_submit:
+        payload: dict[str, Any] = {"job_ids": job_ids}
+        if errors:
+            payload["errors"] = errors
+        return payload
+
+    # Blocking: poll every submitted job_id concurrently, emit {job_ids, results}.
     poll_workers = max(1, min(concurrency, max(1, len(job_ids))))
     results = _poll_many(
         client,
@@ -222,11 +178,9 @@ def _batch_mode(
         timeout=timeout,
         concurrency=poll_workers,
     )
-    for r in results:
-        jid = r.get("job_id", "")
-        if jid in index_for_job:
-            r["index"] = index_for_job[jid]
-    payload["results"] = results
+    payload = {"job_ids": job_ids, "results": results}
+    if errors:
+        payload["errors"] = errors
     return payload
 
 
@@ -236,6 +190,15 @@ def _batch_mode(
 
 
 def higgsfield_generate(args: dict, **_kw) -> str:
+    requests = args.get("requests")
+    if not isinstance(requests, list):
+        return tool_error(
+            "\"requests\" must be an array of request objects; "
+            "wrap even a single image like {\"requests\": [ {\"model\": ..., ...} ]}"
+        )
+    if not requests:
+        return tool_error("\"requests\" must be a non-empty array")
+
     try:
         cfg = load_config()
     except HiggsfieldConfigError as exc:
@@ -253,31 +216,17 @@ def higgsfield_generate(args: dict, **_kw) -> str:
     concurrency = int(args.get("concurrency") or DEFAULT_CONCURRENCY)
     concurrency = max(1, min(concurrency, 32))
 
-    requests = args.get("requests")
     try:
         with HiggsfieldClient(cfg) as client:
-            if requests is not None:
-                if not isinstance(requests, list):
-                    return tool_error("\"requests\" must be an array")
-                payload = _batch_mode(
-                    client,
-                    requests,
-                    folder_id=folder_id,
-                    async_submit=async_submit,
-                    interval=interval,
-                    timeout=timeout,
-                    concurrency=concurrency,
-                )
-            else:
-                payload = _single_mode(
-                    client,
-                    args,
-                    folder_id=folder_id,
-                    async_submit=async_submit,
-                    interval=interval,
-                    timeout=timeout,
-                    concurrency=concurrency,
-                )
+            payload = _run_batch(
+                client,
+                requests,
+                folder_id=folder_id,
+                async_submit=async_submit,
+                interval=interval,
+                timeout=timeout,
+                concurrency=concurrency,
+            )
             return tool_result(payload)
     except HiggsfieldAPIError as exc:
         return tool_error(str(exc), status_code=exc.status_code, body=exc.body)
@@ -291,7 +240,11 @@ def higgsfield_generate(args: dict, **_kw) -> str:
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
-
+#
+# Per-item properties live inside ``requests[i]`` — the only top-level fields
+# are ``requests`` + batch/polling controls. This prevents the LLM from
+# sprinkling empty defaults (``style_input_image: {}``, ``reference_input_images: []``,
+# etc.) into the top-level tool call when generating a single image.
 
 _ITEM_PROPERTIES: dict[str, Any] = {
     "model": {
@@ -386,27 +339,29 @@ _ITEM_PROPERTIES: dict[str, Any] = {
 HIGGSFIELD_GENERATE_SCHEMA = {
     "name": "higgsfield_generate",
     "description": (
-        "Submit Higgsfield FNF generation job(s). **Non-blocking by default** "
-        "— returns job IDs within a few seconds so the chat stays responsive. "
-        "After submitting, the agent should tell the user 'generation started' "
-        "with the job IDs; only call higgsfield_job_status(job_ids=[...]) "
+        "Submit Higgsfield FNF generation job(s). **Always batch-shaped** — "
+        "pass requests as an array, even for a single image: "
+        "{\"requests\": [{\"model\": ..., \"prompt\": ...}]}. "
+        "All items submit in parallel (concurrency, default 8). "
+        "**Non-blocking by default** — returns job IDs within a few seconds so "
+        "the chat stays responsive. After submitting, announce 'generation "
+        "started' with the job IDs; only call higgsfield_job_status(job_ids=[...]) "
         "when the user asks for the result. "
-        "Single mode: pass 'model' + per-model fields at the top level. "
-        "Batch mode: pass 'requests: [{model, ...}, ...]' — all items submit "
-        "in parallel (concurrency, default 8). "
         "Pass async=false ONLY when the caller explicitly wants the URL inline "
         "and is willing to wait (blocks up to timeout_seconds, default 900). "
         "Supported models: "
         + ", ".join(supported_models())
-        + ". Media/image IDs must be pre-existing (upload flow is not exposed as a tool)."
+        + ". Media/image IDs must be pre-existing (upload flow is not exposed as a tool). "
+        "Do NOT pass empty defaults for optional fields — omit them."
     ),
     "parameters": {
         "type": "object",
+        "required": ["requests"],
         "properties": {
-            # Batch-mode control
             "requests": {
                 "type": "array",
-                "description": "Batch-mode: an array of per-image requests, each shaped like the single-mode top-level properties. Mutually exclusive with top-level 'model' (if both set, 'requests' wins).",
+                "minItems": 1,
+                "description": "Array of generation requests. One item per image/video. Each item must include 'model' and the model-specific fields (see builders.py).",
                 "items": {
                     "type": "object",
                     "required": ["model"],
@@ -417,15 +372,12 @@ HIGGSFIELD_GENERATE_SCHEMA = {
                 "type": "integer",
                 "description": "Max parallel submissions / poll workers (default 8, capped at 32).",
             },
-            # Shared control flags
             "async": {
                 "type": "boolean",
                 "description": "DEFAULT true — return job IDs immediately. Pass false only when the caller wants the tool to block and return the finished result URL inline.",
             },
             "poll_interval": {"type": "number"},
             "timeout_seconds": {"type": "number"},
-            # Single-mode inline fields
-            **_ITEM_PROPERTIES,
         },
     },
 }
@@ -449,6 +401,6 @@ registry.register(
         "HF_FOLDER_ID",
         "HF_JWT_TOKEN (prod) or HF_DEV_USER_ID (dev)",
     ],
-    description="Submit Higgsfield generation job(s); supports parallel batch mode.",
+    description="Submit Higgsfield generation job(s); always batch-shaped.",
     emoji="🎨",
 )
