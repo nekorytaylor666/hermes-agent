@@ -400,7 +400,7 @@ Every image generation follows this pattern:
    })
    ```
    Returns `{"job_ids": [...]}` immediately. Order matches `requests`. No polling unless the result is needed downstream.
-7. **Create element** (if the result should be reused): element creation is not yet exposed as a tool — poll the job with `higgsfield_job_status({"job_ids":["<id>"]})` to get the `result.url`, then tell the user that element registration is pending a dedicated tool.
+7. **Create element** (if the result should be reused): poll the job with `higgsfield_job_status({"job_ids":["<id>"]})` to get the `result.url`, then call `higgsfield_element({action:"create", category:..., name:..., medias:[{id:"<JOB_ID>", url:"<RESULT_URL>", type:"<job_set_type>_job"}]})`.
 
 ### CLI Model Names (JSON format)
 
@@ -505,11 +505,22 @@ higgsfield_generate({
   ]
 })
 
-// 2. Poll the job for the result URL (only when the element step is next)
+// 2. Poll the job until it completes (element registration needs the media URL)
 higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
+
+// 3. Register the element — pass the job's {id, url} from step 2 as a media entry.
+higgsfield_element({
+  "action": "create",
+  "category": "character",
+  "name": "Detective",
+  "medias": [
+    {"id":"<JOB_ID>","url":"<RESULT_URL>","type":"soul_cast_job"}
+  ]
+})
+// Returns the new element; its id can now be used as <<<element_id>>> in prompts.
 ```
 
-> Element registration (`element create`) is **not yet exposed as a tool.** Once the job is `completed`, note the `job_id` / `result.url`, and tell the user the element-create step is pending a dedicated tool. In the meantime, reference the prior generation directly in downstream prompts via `medias: [{"role":"image","data":{"id":"<JOB_ID>","type":"<job_set_type>_job"}}]`.
+Alternative (no element): if the character only needs one reuse, skip element creation and reference the job directly in downstream prompts via `medias: [{"role":"image","data":{"id":"<JOB_ID>","type":"<job_set_type>_job"}}]`.
 
 **Using elements in prompts** — embed `<<<element_uuid>>>` in the prompt. Only these models support element placeholders:
 
@@ -531,7 +542,12 @@ higgsfield_generate({
 
 **Listing existing elements:**
 
-> Element listing is **not yet exposed as a tool.** When the user asks to list elements, tell them this is pending a dedicated tool; for now, rely on element IDs the user already has or ones created earlier in the session.
+```json
+higgsfield_element({"action": "list", "category": "character", "size": 20})
+// → { items: [{id, category, name, medias: [...], ...}], has_more, cursor }
+```
+
+Pass `filter: "image"` or `"video"`, `pinned: true`, or `search`-like params (see the tool schema) to narrow results.
 
 ## Polling — Fire-and-Forget
 
@@ -542,7 +558,7 @@ higgsfield_generate({
 **Poll only when the result is referenced downstream:**
 
 - Using the output as a reference for another generation (image→video, character sheet, compositing)
-- Element creation needs the job to be completed (note: element-create tool is not yet wired up)
+- Element creation needs the job to be completed (element-create takes `{id, url}` from the terminal status).
 - User explicitly asks for the URL
 
 Poll call:

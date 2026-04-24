@@ -317,7 +317,6 @@ higgsfield_generate({
 **Other flows not yet exposed as tools:**
 
 - Media upload with IP check — pending (use a pre-existing `MEDIA_ID` if the user has one)
-- Soul ID training (`soul-id create` / `status`) — pending
 
 ---
 
@@ -327,9 +326,21 @@ Elements are persistent character/location/prop references. Once created, any ge
 
 ### Commands
 
-> Element management (list / get / create) is **not yet exposed as tools.** When a task needs to list, fetch, or create an element, tell the user the element CRUD flow isn't wired up in this runtime yet. You can still **use** existing element IDs via `<<<element_id>>>` placeholders — the backend resolves them automatically at generation time.
+**Element CRUD via the `higgsfield_element` tool** — single tool, `action` discriminator:
 
-**Categories:** `character`, `environment`, `prop`, `auto`
+```json
+higgsfield_element({"action": "list", "category": "character", "size": 20})
+higgsfield_element({"action": "get", "element_id": "<UUID>"})
+higgsfield_element({"action": "create",
+  "category": "character", "name": "Maria",
+  "description": "editorial fashion model",
+  "medias": [{"id": "<JOB_ID>", "url": "<RESULT_URL>", "type": "<job_set_type>_job"}]
+})
+```
+
+Media entries accept either a fresh upload (`type: "media_input"`) or a prior generation (`type: "<job_set_type>_job"`). Once created, reference the element in any generation prompt via `<<<element_id>>>` — the backend resolves it automatically.
+
+**Categories:** `character`, `environment`, `prop`, `auto` (and `face`, `outfit`, `product`, `location`, `object`, `style` — see tool schema for the full list).
 
 ### Using elements in prompts
 
@@ -514,16 +525,25 @@ higgsfield_generate({
 higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
 
-> 3. **Create element** — element-create is **not yet exposed as a tool.** Tell the user element registration is pending a dedicated tool. In the meantime, reference the generated job directly in downstream `medias` via `{"id":"<JOB_ID>","type":"soul_cast_job"}` — no element required.
-
 ```json
-// 4. Use in any generation — once an element_id exists, reference it via <<<...>>>
+// 3. Register the element with the job's {id, url} from step 2
+higgsfield_element({
+  "action": "create",
+  "category": "character",
+  "name": "Lifestyle Blogger",
+  "medias": [{"id": "<JOB_ID>", "url": "<RESULT_URL>", "type": "soul_cast_job"}]
+})
+// → { id: "elem_xyz", ... }
+
+// 4. Use in any generation — reference via <<<element_id>>>
 higgsfield_generate({
   "requests": [
     {"model":"seedance_2_0","prompt":"<<<elem_xyz>>> holding a skincare bottle, UGC authentic, 9:16..."}
   ]
 })
 ```
+
+Alternative: skip step 3 if the character only needs one reuse — pass `{"id":"<JOB_ID>","type":"soul_cast_job"}` directly in downstream `medias`.
 
 **soul_cast JSON fields:**
 
@@ -555,10 +575,16 @@ higgsfield_generate({
 higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
 
-> 3. **Create element** — not yet exposed as a tool. Reference the generated job directly via `{"id":"<JOB_ID>","type":"soul_location_job"}` in downstream `medias`.
-
 ```json
-// 4. Use in generation (with an existing element_id)
+// 3. Register the environment element
+higgsfield_element({
+  "action": "create",
+  "category": "environment",
+  "name": "Minimalist Apartment",
+  "medias": [{"id": "<JOB_ID>", "url": "<RESULT_URL>", "type": "soul_location_job"}]
+})
+
+// 4. Use in generation by element_id
 higgsfield_generate({
   "requests": [
     {"model":"seedance_2_0","prompt":"<<<char_id>>> in <<<env_id>>>, morning routine, cinematic..."}
@@ -572,7 +598,8 @@ higgsfield_generate({
 
 - **Ideal** for `soul-cast` / `soul-location` outputs — they exist specifically for reuse
 - **Reuse over recreate:** using `<<<existing_id>>>` gives better consistency than generating a new character each time
-- **Current runtime:** element listing / creation is not yet exposed as a tool. When you can't create a persistent element, fall back to referencing the prior generated job directly in `medias` (`{"id":"<JOB_ID>","type":"<job_set_type>_job"}`)
+- **Check first:** `higgsfield_element({"action":"list","category":"character"})` before creating a new one
+- **Alternative when a single reuse is enough:** skip element creation and reference the prior job directly in `medias` via `{"id":"<JOB_ID>","type":"<job_set_type>_job"}`
 
 ---
 
@@ -593,7 +620,15 @@ higgsfield_generate({
 higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
 
-> Element creation (`element create`) is **not yet exposed as a tool.** Reference the prior job directly via `{"id":"<JOB_ID>","type":"text2image_soul_v2_job"}` in downstream `medias`.
+```json
+// 5. (Optional) Register as an element for cross-session reuse
+higgsfield_element({
+  "action": "create",
+  "category": "character",
+  "name": "…",
+  "medias": [{"id": "<JOB_ID>", "url": "<RESULT_URL>", "type": "text2image_soul_v2_job"}]
+})
+```
 
 ---
 
@@ -601,28 +636,55 @@ higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 
 Use when the user wants to train a face model from photos and generate images with that exact face. Different from Soul Cast: Soul Cast generates a random character, Soul ID trains on real photos to preserve an exact person's likeness.
 
-### Commands
+### Commands — `higgsfield_soul_id` tool
 
-> Soul ID management (`create` / `list` / `status` / `delete`) is **not yet exposed as tools.** When the user asks to train / list / delete Soul IDs, tell them this flow isn't wired up in this runtime yet. A pre-existing `SOUL_ID` (from an earlier out-of-band training) can still be used in generation:
+Single tool with `action` discriminator; upload pipeline for `create` is built-in (it handles `/media/batch` + presigned-S3 PUT + confirm per image).
 
 ```json
-// Generate image with trained face (requires pre-existing SOUL_ID)
+// Train a new Soul ID from a local directory of portraits
+higgsfield_soul_id({
+  "action": "create",
+  "dir": "/tmp/soul-id-maria/",
+  "name": "Maria"
+  // poll: false (default) — training takes up to 30 min; check back later
+})
+// → { reference_id, name, status: "not_ready"|"queued"|..., images_used, uploads: [...] }
+
+// Check status (optionally wait)
+higgsfield_soul_id({"action": "status", "reference_id": "<REFERENCE_ID>", "poll": true})
+
+// List
+higgsfield_soul_id({"action": "list", "type": "soul_2", "size": 20})
+
+// Delete
+higgsfield_soul_id({"action": "delete", "reference_id": "<REFERENCE_ID>"})
+```
+
+Accepted image extensions: `.jpg, .jpeg, .png, .webp, .heic, .heif`. Max 100 images per training run.
+
+Use the returned `reference_id` as `soul_id` in `text2image_soul_v2` generations:
+
+```json
 higgsfield_generate({
   "requests": [
-    {"model":"text2image_soul_v2","prompt":"portrait, golden hour, editorial style","soul_id":"<SOUL_ID>"}
+    {"model":"text2image_soul_v2","prompt":"portrait, golden hour, editorial style","soul_id":"<REFERENCE_ID>"}
   ]
 })
 ```
 
 ### Full Workflow
 
-1. **Collect face photos** — from local files, downloads, or Instagram fetch (instagramcli)
-2. **Train Soul ID** — not yet exposed as a tool. Tell the user this step must be performed out-of-band; resume once a `SOUL_ID` is available.
+1. **Collect face photos** — from local files, downloads, or Instagram fetch (instagramcli); save them into a directory.
+2. **Train Soul ID:**
+   ```json
+   higgsfield_soul_id({"action": "create", "dir": "/tmp/soul-id-maria/", "name": "Maria"})
+   ```
+   Returns `{reference_id, status}` immediately (training continues in background, up to 30 min). Poll with `action: "status"` when the user wants to use the face.
 3. **Generate with Soul ID (non-blocking):**
    ```json
    higgsfield_generate({
      "requests": [
-       {"model":"text2image_soul_v2","prompt":"portrait, dramatic lighting, editorial fashion","soul_id":"<SOUL_ID>"}
+       {"model":"text2image_soul_v2","prompt":"portrait, dramatic lighting, editorial fashion","soul_id":"<REFERENCE_ID>"}
      ]
    })
    ```

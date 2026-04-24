@@ -79,7 +79,15 @@ Do **not** run this path if the user provided photos, an Instagram handle, or an
 
 6. **Train the Soul ID** from the local directory:
 
-   > Soul ID training is not yet exposed as a tool — tell the user the `soul-id create` flow isn't wired up in this runtime yet. When it lands, it will accept the local directory + name and return a `reference_id`.
+   ```json
+   higgsfield_soul_id({
+     "action": "create",
+     "dir": "/tmp/soul-bootstrap-<slug>/",
+     "name": "<persona-name>"
+     // poll: false (default) — training takes up to 30 min; check back via action=status
+   })
+   // → { reference_id, status: "queued"|"in_progress"|..., images_used, uploads: [...] }
+   ```
 
    Capture the returned `reference_id` — this is the persona's Soul ID.
 
@@ -87,7 +95,18 @@ Do **not** run this path if the user provided photos, an Instagram handle, or an
 
    **Reuse the seed.png from step 5.** It is a clean frontal portrait already in the training set — do not generate a separate verification/confirmation image just to upload it. Any extra generation here is wasted work.
 
-   > Upload and element creation are not yet exposed as tools. If the persona needs to be usable in seedance videos, tell the user the upload / element-create flow isn't wired up yet. Alternative: skip the upload+element step and reference the prior generated job directly in seedance `medias` via `{"id":"<SEED_JOB_ID>","type":"text2image_soul_v2_job"}` (or the matching `<job_set_type>_job`) and call `higgsfield_ip_check({"job_ids":["<SEED_JOB_ID>"]})` first.
+   Option A — register an element from the seed job directly (no re-upload needed):
+   ```json
+   higgsfield_element({
+     "action": "create",
+     "category": "character",
+     "name": "<persona-name>",
+     "medias": [{"id": "<SEED_JOB_ID>", "url": "<SEED_URL>", "type": "text2image_soul_v2_job"}]
+   })
+   ```
+   Before using a job reference in a seedance_2_0 generation, also call `higgsfield_ip_check({"job_ids":["<SEED_JOB_ID>"]})` to verify the upstream job is IP-clean.
+
+   Option B (single reuse, no element): skip element creation and pass `{"id":"<SEED_JOB_ID>","type":"text2image_soul_v2_job"}` directly in seedance `medias`.
 
 8. **(Optional) Verify** by generating one test image via the new Soul ID. Skip this unless you have reason to doubt the training — the seed + 4 augmentations already confirm the face. If you do verify, the test generation is for visual inspection only; do not download, upload, or reuse its output — step 7 already handled the element:
 
@@ -157,16 +176,23 @@ curl -L -o /tmp/soul-id-USERNAME/02.jpg "URL_2"
 
 ### 3. Create Soul ID
 
-> **Soul ID management (create / list / status / delete) is not yet exposed as a tool.** When a request requires training a new Soul ID, tell the user the `soul-id create` flow isn't wired up in this runtime yet. If a `reference_id` already exists (from a prior out-of-band setup), you can still use it in `text2image_soul_v2` generation below.
+Use the `higgsfield_soul_id` tool with `action: "create"`. It handles the full pipeline internally:
 
-This flow will, when ported:
+1. Discovers all supported images (`.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.heif`) in the directory
+2. Batch-uploads them to the Higgsfield backend (via `/media/batch` + presigned S3 PUT + confirm)
+3. Creates a Soul 2.0 custom reference
+4. Returns immediately with `reference_id` + current `status` (training continues in background, up to 30 min); pass `poll: true` to wait
 
-1. Discover all images (jpg, png, webp, heic) in a directory
-2. Batch-upload them to the Higgsfield backend
-3. Create a Soul 2.0 custom reference
-4. Poll until training completes (up to 30 minutes)
+```json
+higgsfield_soul_id({
+  "action": "create",
+  "dir": "/tmp/soul-id-USERNAME/",
+  "name": "Person Name"
+})
+// → { reference_id, name, status, images_used, uploads: [{file, media_id}, ...] }
+```
 
-Output includes `reference_id` — save this for generation.
+Save the returned `reference_id` for generation.
 
 ### 4. Generate with Soul ID
 
@@ -184,7 +210,17 @@ Returns `{"job_ids": [...]}` immediately. Poll via `higgsfield_job_status({"job_
 
 ### 5. Management Commands
 
-Soul ID list / status / delete commands are not yet exposed as tools. When the user asks to list or delete Soul IDs, tell them these management endpoints aren't wired up in this runtime yet.
+```json
+// List Soul IDs
+higgsfield_soul_id({"action": "list", "type": "soul_2", "size": 20})
+// Filter: add status ("completed", "in_progress", "queued", "failed", "not_ready") or search (substring on name)
+
+// Check one (optionally wait)
+higgsfield_soul_id({"action": "status", "reference_id": "<REFERENCE_ID>", "poll": true})
+
+// Delete
+higgsfield_soul_id({"action": "delete", "reference_id": "<REFERENCE_ID>"})
+```
 
 ## Full Example: Instagram to Soul 2.0 Generation
 
@@ -200,14 +236,18 @@ MEDIAS=$(instagramcli user medias --user-id "$USER_ID" --flat)
 mkdir -p /tmp/soul-id-alexconsani
 # Parse and download top face images from the media response
 
-# 4. Train Soul ID — not yet exposed as a tool. Tell the user this step
-#    must be performed out-of-band; the downstream generate requires a
-#    REFERENCE_ID that already exists. If the user supplies one, skip to
-#    step 5 with it.
-REF_ID="<REFERENCE_ID>"
+# 4. Train Soul ID — returns {reference_id} immediately; training continues
+#    for up to 30 min. Pass poll=true to block until terminal.
 ```
 
 ```json
+higgsfield_soul_id({
+  "action": "create",
+  "dir": "/tmp/soul-id-alexconsani/",
+  "name": "Alex Consani"
+})
+// → { "reference_id": "<REFERENCE_ID>", "status": "queued", ... }
+
 // 5. Generate with Soul 2.0 — returns job_ids immediately (fire-and-forget)
 higgsfield_generate({
   "requests": [

@@ -311,8 +311,8 @@ When a video ad request involves a specific person (generated character, uploade
 
 Use `<<<element_id>>>` directly in the prompt **instead of** `@ImageN` for the creator.
 
-1. **Check existing elements:** element listing is not yet exposed as a tool — rely on element IDs the user already has, or ones produced earlier in the session.
-2. **If suitable element exists** — use it. If not — generate via **Soul 2.0** (see Soul 2.0 Character Prompt Rules in `/higgsfield`), then register it as an element (element creation tool not yet wired up — tell the user).
+1. **Check existing elements:** `higgsfield_element({"action": "list", "category": "character", "size": 20})`. Scan the `items` array for a matching creator.
+2. **If suitable element exists** — use its `id`. If not — generate via **Soul 2.0** (see Soul 2.0 Character Prompt Rules in `/higgsfield`), poll to completion, then register it: `higgsfield_element({"action":"create","category":"character","name":"…","medias":[{"id":"<JOB_ID>","url":"<RESULT_URL>","type":"text2image_soul_v2_job"}]})`.
 3. **Build prompt from reference template as usual**, but replace `@ImageN is the creator reference` with `<<<element_id>>>`:
    ```
    <<<elem_xyz>>> is the creator. @Image1 is the product reference. ANGLE LOCK: ...
