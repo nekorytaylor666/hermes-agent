@@ -289,9 +289,19 @@ def _secure_file(path):
 
 
 def _ensure_default_soul_md(home: Path) -> None:
-    """Seed a default SOUL.md into HERMES_HOME if the user doesn't have one yet."""
+    """Seed a default SOUL.md into HERMES_HOME, or upgrade the old generic default."""
+    from hermes_cli.default_soul import _OLD_DEFAULT_SOUL_MD
+
     soul_path = home / "SOUL.md"
     if soul_path.exists():
+        try:
+            existing = soul_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            return
+        if existing == _OLD_DEFAULT_SOUL_MD.strip():
+            # Upgrade from old generic default to Higgsfield-aware default
+            soul_path.write_text(DEFAULT_SOUL_MD, encoding="utf-8")
+            _secure_file(soul_path)
         return
     soul_path.write_text(DEFAULT_SOUL_MD, encoding="utf-8")
     _secure_file(soul_path)

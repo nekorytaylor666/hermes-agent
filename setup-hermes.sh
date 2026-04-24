@@ -333,6 +333,51 @@ else
 fi
 
 # ============================================================================
+# Symlink bundled CLI binaries into the user-facing bin dir
+# ============================================================================
+
+echo ""
+echo -e "${CYAN}→${NC} Setting up bundled CLI tools..."
+
+# Pick the platform-specific binary directory
+UNAME_S="$(uname -s)"
+case "$UNAME_S" in
+    Darwin*)  BIN_PLATFORM_DIR="$SCRIPT_DIR/bin/macos" ;;
+    Linux*)   BIN_PLATFORM_DIR="$SCRIPT_DIR/bin/linux" ;;
+    *)        BIN_PLATFORM_DIR="" ;;
+esac
+
+HERMES_CLI_BINS=(higgsfieldcli instagramcli youtubecli tiktokcli adscli trendscli contentcli fetchcli searchcli perplexitycli)
+LINKED_COUNT=0
+
+if [ -n "$BIN_PLATFORM_DIR" ] && [ -d "$BIN_PLATFORM_DIR" ]; then
+    for cli_bin in "${HERMES_CLI_BINS[@]}"; do
+        src="$BIN_PLATFORM_DIR/$cli_bin"
+        # Fall back to repo root bin/ if not in platform dir
+        [ ! -f "$src" ] && src="$SCRIPT_DIR/bin/$cli_bin"
+        if [ -f "$src" ] && [ -x "$src" ]; then
+            ln -sf "$src" "$COMMAND_LINK_DIR/$cli_bin"
+            LINKED_COUNT=$((LINKED_COUNT + 1))
+        fi
+    done
+else
+    # No platform dir — try repo root bin/ directly
+    for cli_bin in "${HERMES_CLI_BINS[@]}"; do
+        src="$SCRIPT_DIR/bin/$cli_bin"
+        if [ -f "$src" ] && [ -x "$src" ]; then
+            ln -sf "$src" "$COMMAND_LINK_DIR/$cli_bin"
+            LINKED_COUNT=$((LINKED_COUNT + 1))
+        fi
+    done
+fi
+
+if [ "$LINKED_COUNT" -gt 0 ]; then
+    echo -e "${GREEN}✓${NC} Linked $LINKED_COUNT CLI tools into $COMMAND_LINK_DISPLAY_DIR"
+else
+    echo -e "${YELLOW}⚠${NC} No CLI binaries found for this platform"
+fi
+
+# ============================================================================
 # Seed bundled skills into ~/.hermes/skills/
 # ============================================================================
 
