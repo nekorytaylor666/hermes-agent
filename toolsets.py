@@ -35,8 +35,12 @@ _HERMES_CORE_TOOLS = [
     "terminal", "process",
     # File manipulation
     "read_file", "write_file", "patch", "search_files",
-    # Vision + image generation
-    "vision_analyze", "image_generate",
+    # Vision
+    "vision_analyze",
+    # Higgsfield image/video generation (SOLE path for image + video; fal.ai
+    # image_generate tool is intentionally excluded from core so the LLM
+    # cannot fall back to it).
+    "higgsfield_generate", "higgsfield_job_status",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
