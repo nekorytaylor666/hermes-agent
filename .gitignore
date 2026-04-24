@@ -71,4 +71,4 @@ result
 website/static/api/skills-index.json
 
 # JetBrains IDEs
-.idea/
+.idea
