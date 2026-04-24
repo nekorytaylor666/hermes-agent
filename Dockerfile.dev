@@ -34,10 +34,16 @@ COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/loc
 # lack prebuilt binaries on debian/arm64.  nodejs+npm build the Vite
 # dashboard into hermes_cli/web_dist so the runtime stage doesn't need
 # Node available just to serve the SPA.
+#
+# libolm-dev: required by python-olm (pulled in via mautrix[encryption]
+# through the [matrix] extra, which [all] includes on Linux).  Without
+# it the ld step for python-olm's C extension fails with:
+#     /usr/bin/ld: cannot find -lolm: No such file or directory
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-dev \
         build-essential gcc \
         libffi-dev \
+        libolm-dev \
         ca-certificates curl git \
         nodejs npm \
     && rm -rf /var/lib/apt/lists/*
@@ -105,6 +111,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # the `useradd hermes` step below and by entrypoint.sh's HERMES_UID
         # remap.
         passwd \
+        # libolm runtime — builder linked python-olm against libolm-dev;
+        # the resulting _libolm.abi3.so needs libolm.so.3 at import time.
+        # (dev-less package name; <1 MB.)
+        libolm3 \
         # init + zombie reaping
         tini \
         # core
