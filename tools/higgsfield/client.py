@@ -99,6 +99,43 @@ class HiggsfieldClient:
             f"/internal/claudesfield/jobs/{job_id}/ip-detect",
         )
 
+    def list_elements(self, params: dict) -> dict:
+        """GET /internal/claudesfield/reference-elements — list with filters.
+
+        ``params`` keys: category, categories (comma-joined), filter,
+        pinned (bool), ip_detected (bool), size (int), cursor (str).
+        """
+        from urllib.parse import urlencode
+
+        query: dict[str, str] = {"size": str(int(params.get("size") or 20))}
+        for key in ("category", "categories", "filter", "cursor"):
+            val = params.get(key)
+            if val:
+                query[key] = str(val)
+        for key in ("pinned", "ip_detected"):
+            val = params.get(key)
+            if val is not None:
+                query[key] = "true" if bool(val) else "false"
+        return self._request(
+            "GET",
+            f"/internal/claudesfield/reference-elements?{urlencode(query)}",
+        )
+
+    def get_element(self, element_id: str) -> dict:
+        """GET /internal/claudesfield/reference-elements/{id}"""
+        return self._request(
+            "GET",
+            f"/internal/claudesfield/reference-elements/{element_id}",
+        )
+
+    def create_element(self, body: dict) -> dict:
+        """POST /internal/claudesfield/reference-elements — create new element."""
+        return self._request(
+            "POST",
+            "/internal/claudesfield/reference-elements",
+            json=body,
+        )
+
     def inspiration(self, query: str, top_k: int = 5) -> dict:
         """POST <INSPIRATION_BASE_URL or derived>/rag — RAG search over design templates.
 
