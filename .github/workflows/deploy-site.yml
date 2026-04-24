@@ -1,17 +1,9 @@
 name: Deploy Site
 
+# Auto-triggers disabled by the Higgsfield fork. Re-enable by restoring
+# the original `on:` block (see upstream NousResearch/hermes-agent).
 on:
-  release:
-    types: [published]
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - 'skills/**'
-      - 'optional-skills/**'
-      - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
-
 permissions:
   pages: write
   id-token: write
