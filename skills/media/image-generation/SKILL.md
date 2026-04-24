@@ -4,10 +4,6 @@ description: |
   Image generation skill. Loaded by Mr Higgs for simple text-to-image, or by image-agent for complex generation (references, batch, inspiration, posters).
 ---
 
-# Image Generation
-
-Pick the right model, read its reference file, craft the prompt accordingly.
-
 ## Soul ID Gate (precedes model selection)
 
 If the brief includes a `soul_id`, use `text2image_soul_v2` with that `soul_id` parameter — skip the model selection table below entirely. Soul Cast is a different mode (random character casting) and does NOT accept `soul_id`; never route a trained Soul ID through Soul Cast.
@@ -38,8 +34,8 @@ Otherwise, first match wins:
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **Seedream V5 Lite** | Editing a REAL PHOTOGRAPH of a real person where their face identity must be preserved. Only for photographic face edits (face swaps, likeness compositing from real photos). NEVER for cartoon, stylized, 3D, illustrated, or AI-generated characters — those go to Nano Banana Pro even if a face is present                                                                                                                                                                                                      | `.claude/skills/image-skill/references/seedream.md`                                                |
 | **Seedream V4.5**    | High-quality image generation with input image support. Similar to V5 Lite but different model version. Do NOT use for: product compositing, e-commerce images, Amazon listings, aesthetic/editorial content, or text rendering — use Nano Banana Pro for compositing/e-commerce/text, Soul 2.0 for aesthetic/editorial                                                                                                                                                                                              | `.claude/skills/image-skill/references/seedream.md`                                                |
-| **Soul Cast**        | Cinematic character creation before video generation — "create a character for a video", "cast a character for a scene", "design a person to use in video". Creates characters that should be saved as **elements** for reuse. Text-to-image only, no image-to-image                                                                                                                                                                                                                                              | No reference file — use `higgsfieldcli generate --json '[{"model":"soul_cast",...}]'` directly     |
-| **Soul Location**    | Location/environment generation — "create a setting", "generate a background", "make a scene location". Creates environments that should be saved as **elements** for reuse                                                                                                                                                                                                                                                                                                                                       | No reference file — use `higgsfieldcli generate --json '[{"model":"soul_location",...}]'` directly |
+| **Soul Cast**        | Cinematic character creation before video generation — "create a character for a video", "cast a character for a scene", "design a person to use in video". Creates characters that should be saved as **elements** for reuse. Text-to-image only, no image-to-image                                                                                                                                                                                                                                              | No reference file — call `higgsfield_generate({"requests":[{"model":"soul_cast", ...}]})` directly |
+| **Soul Location**    | Location/environment generation — "create a setting", "generate a background", "make a scene location". Creates environments that should be saved as **elements** for reuse                                                                                                                                                                                                                                                                                                                                       | No reference file — call `higgsfield_generate({"requests":[{"model":"soul_location", ...}]})` directly |
 | **Soul Cinematic**   | Cinematic stills, moodboards, film-reference frames — use when there is **no named actor or specific person's face** required. For a cinematic still that needs a specific actor's face → use Nano Banana Pro instead                                                                                                                                                                                                                                                                                               | `.claude/skills/image-skill/references/soul-cinematic.md`                                          |
 | **Soul 2.0**          | Default for person/character generation: UGC, influencer, editorial, fashion, y2k, streetwear, Kodak/film aesthetics. Use when **vibe > strict feature accuracy** AND **no IP/exotic trigger** (no named characters — Spiderman, Disney, anime; no real actor likeness; no hard-to-render exotic features — vitiligo, heterochromia, specific height, rare feature combos)                                                                                                                                        | `.claude/skills/image-skill/references/soul-v2-avatar.md`                                          |
 | **GPT Image 2.0**      | Heavy/detail-dense only — use ONLY when the task needs super-specific control that Nano Banana Pro can't deliver: posters, cards, menus, infographics with **real quoted text rendered accurately**; fixed layouts with multiple elements in **specific positions**; UI mockups, webpage replications, screen recreations, game assets, presentation slides; heavy edits changing many small details at once / precise typography. **NOT for simple color swaps or background changes** — those go to Nano Banana Pro | `.claude/skills/image-skill/references/imagegen-2.md`                                               |
@@ -56,9 +52,8 @@ User provides a text description → pick model from table → read reference �
 ### Workflow B: Reference Image (attached or URL to image)
 
 User attaches an image or provides a direct image URL →
-download image (`curl -sL -o /tmp/<descriptive-name>.jpg "URL"` — name after the content, e.g. `product-sneaker.jpg`) →
-upload via `higgsfieldcli upload` →
-read reference → generate with reference in `images`/`medias` array.
+obtain a pre-existing `MEDIA_ID` for it (upload is not yet exposed as a tool — if no ID is available, tell the user upload isn't wired up yet) →
+read reference → generate with the ID placed in `images` / `medias` array.
 
 ### Workflow C: Product Page URL (Extract + Show)
 
@@ -99,45 +94,19 @@ Always read the matched reference file and follow its prompt structure and rules
 
 When the user requests multiple images (carousel, set, variants, A/B), **style consistency is mandatory and non-negotiable by default** — every image in the set must feel like it was designed by the same person in the same session.
 
-**Parallel execution:** The CLI supports concurrent generation via a JSON array. Instead of running `generate --json '{...}]'` separately for each image, batch all images into a single call:
-
-```bash
-higgsfieldcli generate --json '[
-  {"model":"nano_banana_2","prompt":"...image 1...","aspect_ratio":"1:1"},
-  {"model":"nano_banana_2","prompt":"...image 2...","aspect_ratio":"1:1"},
-  {"model":"nano_banana_2","prompt":"...image 3...","aspect_ratio":"1:1"}
-]'
-```
-
-All items in the array execute concurrently. The output is a single JSON array ordered by input index:
+**Parallel execution:** The tool always takes a `requests` array. Put every image into one call — items execute concurrently (up to `concurrency`, default 8):
 
 ```json
-[
-  {
-    "index": 0,
-    "job_set_id": "...",
-    "job_set_type": "nano_banana_2",
-    "job_ids": ["job_..."],
-    "status": "created"
-  },
-  {
-    "index": 1,
-    "job_set_id": "...",
-    "job_set_type": "nano_banana_2",
-    "job_ids": ["job_..."],
-    "status": "created"
-  },
-  {
-    "index": 2,
-    "job_set_id": "...",
-    "job_set_type": "nano_banana_2",
-    "job_ids": ["job_..."],
-    "status": "created"
-  }
-]
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"...image 1...","aspect_ratio":"1:1"},
+    {"model":"nano_banana_2","prompt":"...image 2...","aspect_ratio":"1:1"},
+    {"model":"nano_banana_2","prompt":"...image 3...","aspect_ratio":"1:1"}
+  ]
+})
 ```
 
-Each entry's `index` matches the position in the input array (0-based). Failed items have `"status":"failed"` and an `"error"` field. Track the `index` → `job_ids` mapping so the user can reference individual results by number (e.g., "change the third image" → index 2).
+Returns `{"job_ids": [...]}` within seconds. Order is preserved — `job_ids[i]` corresponds to `requests[i]`. Per-item failures appear in `errors: [{index, error}]`. Track the index → job_id mapping so the user can reference individual results by number (e.g., "change the third image" → index 2).
 
 **When to use parallel generation:**
 
@@ -196,15 +165,17 @@ Copy the Style + Instructions block verbatim from the first image's prompt into 
 
 After constructing all prompts, submit them in one call:
 
-```bash
-higgsfieldcli generate --json '[
-  {"model":"nano_banana_2","prompt":"[Subject 1] [shared Style+Instructions]","aspect_ratio":"1:1"},
-  {"model":"nano_banana_2","prompt":"[Subject 2] [shared Style+Instructions]","aspect_ratio":"1:1"},
-  {"model":"nano_banana_2","prompt":"[Subject 3] [shared Style+Instructions]","aspect_ratio":"1:1"}
-]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"[Subject 1] [shared Style+Instructions]","aspect_ratio":"1:1"},
+    {"model":"nano_banana_2","prompt":"[Subject 2] [shared Style+Instructions]","aspect_ratio":"1:1"},
+    {"model":"nano_banana_2","prompt":"[Subject 3] [shared Style+Instructions]","aspect_ratio":"1:1"}
+  ]
+})
 ```
 
-The output is a single JSON array ordered by input index — each entry has `"index"`, `"job_ids"`, `"job_set_type"`, and `"status"`. Track the index → job_ids mapping so the user can reference individual results by number (e.g., "change the third image" → index 2). All jobs run concurrently — total wall-clock time ≈ single image time instead of N× serial.
+Returns `{"job_ids": [...]}` in seconds, order-preserving. Track the index → job_id mapping so the user can reference individual results by number (e.g., "change the third image" → index 2). All jobs run concurrently — total wall-clock time ≈ single image time instead of N× serial.
 
 ## Aspect Ratio Guide
 
@@ -258,16 +229,13 @@ Skip Step 0 (inspiration) if **any** of the following are true:
 - "minimalist jazz concert poster" → `"jazz concert minimalist poster typography"`
 - "cozy winter skincare carousel" → `"winter skincare warm pastel lifestyle"`
 
-### 2. Run the inspiration query with download
+### 2. Run the inspiration query
 
-```bash
-higgsfieldcli inspiration --query "<derived query string>" --top-k 5 --download
+```json
+higgsfield_inspiration({"query": "<derived query string>", "top_k": 5})
 ```
 
-The `--download` flag automatically downloads all result files (template images) to a temporary folder. Returns JSON with:
-
-- `directory` — path to the temp folder containing downloaded files
-- `files` — list of successfully downloaded filenames
+Returns `{query, top_k, results: [{url, keywords, ...}]}`. Open the most promising `url` with `vision_analyze` to read the template directly — no download step needed. If no `vision_analyze` is available in the session, skip the inspiration step and fall back to the designer/style rules in the relevant reference file (`banana.md`, etc.).
 
 ### 3. View all returned templates
 
@@ -380,7 +348,7 @@ After completing steps 1–6, write out the complete NB2 prompt in full before t
 
 **Hard constraints:**
 
-- Never pass template URLs as `--image` to `higgsfieldcli` — template is for your analysis only
+- Never pass template URLs into the `images`/`medias` array — the template is for your analysis only
 - For carousels/sets: run Step 0 once, apply the same visual DNA across all images in the set
 - Do not paste keywords verbatim into the prompt — always translate to specific art-director directives
 - If the inspiration returns no useful results, proceed normally without blocking
@@ -391,7 +359,7 @@ Before constructing the `images`/`medias` array, determine the source of each re
 
 ### Case 1: Image is a result from a previous generation in this session
 
-**How to detect:** You have a job ID and job_set_type from a prior `higgsfieldcli generate` command in the current conversation.
+**How to detect:** You have a job ID and job_set_type from a prior `higgsfield_generate` call in the current conversation.
 
 → Do NOT upload. Use the job result directly:
 
@@ -400,20 +368,21 @@ Before constructing the `images`/`medias` array, determine the source of each re
 
 ### Case 2: Image is user-provided or from an external source
 
-**How to detect:** The image URL was provided by the user, comes from an external website, or is a local file path — it was NOT generated by a previous `higgsfieldcli generate` command in this session.
+**How to detect:** The image URL was provided by the user, comes from an external website, or is a local file path — it was NOT generated by a previous `higgsfield_generate` call in this session.
 
-→ Upload first via `higgsfieldcli upload`, then use:
-
-- `"id"` = the upload response `id` field
-- `"type"` = `media_input`
+→ Upload is not yet exposed as a tool. If the user provides an external URL or local file, either:
+- tell them upload isn't wired up yet, or
+- if they already have a pre-existing `MEDIA_ID`, use:
+  - `"id"` = their upload response `id`
+  - `"type"` = `media_input`
 
 ### Decision priority
 
 Always check Case 1 first. If the image came from a generation in this conversation, you MUST use `<model>_job` type. Never re-upload generation results.
 
-## CLI Workflow
+## Tool Workflow
 
-**CRITICAL: Always use `higgsfieldcli generate --json '{...}]'` for ALL generation commands.** Never call model-specific subcommands like `higgsfieldcli image`, `higgsfieldcli video`, `higgsfieldcli nano-banana-2`, etc. — those are deprecated and will fail. The only generation interface is `generate --json`.
+**All generation goes through the `higgsfield_generate` tool (always batch-shaped via `requests: [...]`).** Never shell out to `higgsfieldcli` — the Go binary is deprecated and not on the runtime PATH.
 
 Every image generation follows this pattern:
 
@@ -421,12 +390,17 @@ Every image generation follows this pattern:
 2. **Read the model's reference file** for prompt rules and parameters
 3. **Design Inspiration (NB2 only)**: Run Step 0 — query inspiration, view templates, analyze the best match, translate to directives, synthesize the full prompt using the Enhancer format. Skip if conditions in the "When to run" table are met.
 4. **Reference elements** (if reusing characters/locations): embed `<<<element_id>>>` in the prompt
-5. **Upload reference images** (if needed): `higgsfieldcli upload --file /path/to/image.png`
-6. **Generate**:
-   - **Single image**: `higgsfieldcli generate --json '[{"model":"<model_name>","prompt":"...","aspect_ratio":"3:4"}]'`
-   - **Multiple independent images**: `higgsfieldcli generate --json '[{"model":"...","prompt":"..."},{"model":"...","prompt":"..."}]'` — all items run concurrently
-   - Returns one `created` line per item immediately — capture `job_ids` and `job_set_type`. No polling unless the result is needed downstream.
-7. **Create element** (if the result should be reused): poll with `higgsfieldcli status --job-id JOB_ID --poll` until completed, then `higgsfieldcli element create --category character --name "Name" --media "id=JOB_ID;type=image_job"`
+5. **Reference images** (if needed): use a pre-existing `MEDIA_ID` — upload is not yet exposed as a tool.
+6. **Generate** (both single and multi go through the same call; wrap even one image in `requests: [...]`):
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"<model_name>","prompt":"...","aspect_ratio":"3:4"}
+     ]
+   })
+   ```
+   Returns `{"job_ids": [...]}` immediately. Order matches `requests`. No polling unless the result is needed downstream.
+7. **Create element** (if the result should be reused): poll the job with `higgsfield_job_status({"job_ids":["<id>"]})` to get the `result.url`, then call `higgsfield_element({action:"create", category:..., name:..., medias:[{id:"<JOB_ID>", url:"<RESULT_URL>", type:"<job_set_type>_job"}]})`.
 
 ### CLI Model Names (JSON format)
 
@@ -443,24 +417,34 @@ Every image generation follows this pattern:
 
 ### Generate (text-to-image)
 
-```bash
-higgsfieldcli generate --json '[{"model":"nano_banana_2","prompt":"...","aspect_ratio":"3:4"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"...","aspect_ratio":"3:4"}
+  ]
+})
 ```
 
-Returns a `created` line immediately with `job_set_id`, `job_set_type`, `job_ids`. Do not wait. Poll only if the result is referenced downstream.
+Returns `{"job_ids": [...]}` immediately. Do not wait. Poll only if the result is referenced downstream.
 
 ### Generate with Reference Image (image-to-image)
 
-```bash
-# 1. Upload reference image
-UPLOAD=$(higgsfieldcli upload --file /path/to/image.png)
-IMAGE_ID=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+Requires a pre-existing `IMAGE_ID` (upload tool not yet wired up).
 
-# 2a. For nano_banana_2 / seedream_v4_5 — use "images" array
-higgsfieldcli generate --json "[{\"model\":\"nano_banana_2\",\"prompt\":\"...\",\"images\":[{\"id\":\"$IMAGE_ID\",\"type\":\"media_input\"}],\"aspect_ratio\":\"3:4\"}"
+```json
+// For nano_banana_2 / seedream_v4_5 — use "images" array
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"...","images":[{"id":"<IMAGE_ID>","type":"media_input"}],"aspect_ratio":"3:4"}
+  ]
+})
 
-# 2b. For other models (soul_v2, soul_cinematic, seedream_v5_lite, seedance_2_0) — use "medias" array
-higgsfieldcli generate --json "[{\"model\":\"text2image_soul_v2\",\"prompt\":\"...\",\"medias\":[{\"role\":\"image\",\"data\":{\"id\":\"$IMAGE_ID\",\"type\":\"media_input\"}}],\"aspect_ratio\":\"3:4\"}"
+// For other models (soul_v2, soul_cinematic, seedream_v5_lite, seedance_2_0) — use "medias" array
+higgsfield_generate({
+  "requests": [
+    {"model":"text2image_soul_v2","prompt":"...","medias":[{"role":"image","data":{"id":"<IMAGE_ID>","type":"media_input"}}],"aspect_ratio":"3:4"}
+  ]
+})
 ```
 
 ### Image entry `type` values
@@ -469,7 +453,7 @@ Two sources of reference images, each with a different `type`:
 
 | Source                                   | `type` value  | Example                      |
 | ---------------------------------------- | ------------- | ---------------------------- |
-| Uploaded via `higgsfieldcli upload`      | `media_input` | `"type":"media_input"`       |
+| User-provided pre-existing upload `id`   | `media_input` | `"type":"media_input"`       |
 | Job result (reusing a generation output) | `<model>_job` | `"type":"nano_banana_2_job"` |
 
 **Exception:** `seedream_v5_lite` job results use `"type":"seedream_v5_job"` (not `seedream_v5_lite_job`).
@@ -513,16 +497,30 @@ Elements are persistent references (characters, environments, props) created fro
 
 **Creating elements:**
 
-```bash
-# Generate a character with soul_cast — fire-and-forget, capture job_id from created line
-CREATED=$(higgsfieldcli generate --json '[{"model":"soul_cast","prompt":"a noir detective","width":1024,"height":1024,"batch_size":1,"character_params":{"genre":"Drama","budget":10}}]')
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().splitlines()[0])['job_ids'][0])")
+```json
+// 1. Generate a character with soul_cast — non-blocking, capture job_id from the response
+higgsfield_generate({
+  "requests": [
+    {"model":"soul_cast","prompt":"a noir detective","width":1024,"height":1024,"batch_size":1,"character_params":{"genre":"Drama","budget":10}}
+  ]
+})
 
-# Element creation needs the job to be completed → poll
-higgsfieldcli status --job-id "$JOB_ID" --poll
-higgsfieldcli element create --category character --name "Detective" \
-  --media "id=$JOB_ID;type=image_job"
+// 2. Poll the job until it completes (element registration needs the media URL)
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
+
+// 3. Register the element — pass the job's {id, url} from step 2 as a media entry.
+higgsfield_element({
+  "action": "create",
+  "category": "character",
+  "name": "Detective",
+  "medias": [
+    {"id":"<JOB_ID>","url":"<RESULT_URL>","type":"soul_cast_job"}
+  ]
+})
+// Returns the new element; its id can now be used as <<<element_id>>> in prompts.
 ```
+
+Alternative (no element): if the character only needs one reuse, skip element creation and reference the job directly in downstream prompts via `medias: [{"role":"image","data":{"id":"<JOB_ID>","type":"<job_set_type>_job"}}]`.
 
 **Using elements in prompts** — embed `<<<element_uuid>>>` in the prompt. Only these models support element placeholders:
 
@@ -531,39 +529,45 @@ higgsfieldcli element create --category character --name "Detective" \
 - `seedream_v5_lite`
 - `seedance_2_0`
 
-Models that do **NOT** support elements: `soul_cast`, `soul_location`, `text2image_soul_v2`, `soul_cinematic`. For these, use `medias`/`images` arrays with uploaded media instead.
+Models that do **NOT** support elements: `soul_cast`, `soul_location`, `text2image_soul_v2`, `soul_cinematic`. For these, use `medias`/`images` arrays with a pre-existing `media_input` ID or a prior `<job_set_type>_job` reference instead.
 
-```bash
-higgsfieldcli generate --json '[{"model":"nano_banana_2","prompt":"<<<abc123>>> portrait, dramatic lighting..."}]'
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<<<abc123>>> walking down a rainy street..."}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"nano_banana_2","prompt":"<<<abc123>>> portrait, dramatic lighting..."},
+    {"model":"seedance_2_0","prompt":"<<<abc123>>> walking down a rainy street..."}
+  ]
+})
 ```
 
 **Listing existing elements:**
 
-```bash
-higgsfieldcli element list --size 20
-higgsfieldcli element list --category character
+```json
+higgsfield_element({"action": "list", "category": "character", "size": 20})
+// → { items: [{id, category, name, medias: [...], ...}], has_more, cursor }
 ```
+
+Pass `filter: "image"` or `"video"`, `pinned: true`, or `search`-like params (see the tool schema) to narrow results.
 
 ## Polling — Fire-and-Forget
 
-`higgsfieldcli generate` no longer blocks to completion. It prints a `created` line with `job_set_id`, `job_set_type`, and `job_ids` **immediately**, then returns. That first line is all you need for the default case — do NOT use long timeouts and do NOT run in background.
+`higgsfield_generate` is non-blocking by default. It returns `{"job_ids": [...]}` **immediately** and exits. That response is all you need for the default case — do NOT sleep, loop, or hold the tool call open.
 
-**Default: fire-and-forget.** Submit, capture `job_id` + `job_set_type`, report them, move on.
+**Default: fire-and-forget.** Submit, capture `job_ids`, report them, move on.
 
 **Poll only when the result is referenced downstream:**
 
-- Uploading the output as a reference for another generation (image→video, character sheet, compositing)
-- `element create` needs the job to be completed
+- Using the output as a reference for another generation (image→video, character sheet, compositing)
+- Element creation needs the job to be completed (element-create takes `{id, url}` from the terminal status).
 - User explicitly asks for the URL
 
-Poll command:
+Poll call:
 
-```bash
-higgsfieldcli status --job-id JOB_ID --poll
+```json
+higgsfield_job_status({"job_ids": ["<JOB_ID>"]})
 ```
 
-Returns `{"job_id","status","job_set_type","ip_check_finished","ip_detected","job_set_id","result":{"url","type"}}`. `result.url` is the CDN URL of the finished image; `result.type` is `"image"`. Build downstream references using `id=JOB_ID`, `type=<job_set_type>_job`. See `/higgsfield` skill for the full `job_set_type` → `type` mapping (note: `seedream_v5_lite` → `seedream_v5_job`).
+Returns `{"job_ids":["..."], "results":[{"job_id","status","job_set_type","ip_check_finished","ip_detected","job_set_id","result":{"url","type"}}]}`. `result.url` is the CDN URL of the finished image; `result.type` is `"image"`. Build downstream references using `id=<JOB_ID>`, `type=<job_set_type>_job`. See `/higgsfield` skill for the full `job_set_type` → `type` mapping (note: `seedream_v5_lite` → `seedream_v5_job`).
 
 ## Error Handling
 

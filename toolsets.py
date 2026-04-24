@@ -35,8 +35,14 @@ _HERMES_CORE_TOOLS = [
     "terminal", "process",
     # File manipulation
     "read_file", "write_file", "patch", "search_files",
-    # Vision (image generation is handled by higgsfieldcli via terminal)
+    # Vision
     "vision_analyze", "video_analyze",
+    # Higgsfield image/video generation (SOLE path for image + video; fal.ai
+    # image_generate tool is intentionally excluded from core so the LLM
+    # cannot fall back to it).
+    "higgsfield_generate", "higgsfield_job_status", "higgsfield_ip_check",
+    "higgsfield_inspiration", "higgsfield_element", "higgsfield_soul_id",
+    "higgsfield_balance",
     # Skills
     "skills_list", "skill_view", "skill_manage",
     # Browser automation
@@ -223,6 +229,17 @@ TOOLSETS = {
             "spotify_playback", "spotify_devices", "spotify_queue", "spotify_search",
             "spotify_playlists", "spotify_albums", "spotify_saved_tracks",
             "spotify_saved_albums", "spotify_activity",
+        ],
+        "includes": []
+    },
+
+    "higgsfield": {
+        "description": "Higgsfield FNF image and video generation (native Python port of higgsfieldcli generate). Submits a job, polls to completion, returns the result URL. Supports all FNF models: imagegen_2_0, nano_banana_2, soul_v2, soul_cinematic, soul_cast, soul_location, seedream_v5_lite, seedream_v4_5, seedance_2_0, kling3_0, flux_2, openai_hazel, kling_omni_image, grok_image, z_image, image_auto, seedance1_5, kling2_6, cinematic_studio_2_5/3_0, minimax_hailuo, wan2_6/2_7, veo3, veo3_1, veo3_1_lite, grok_video.",
+        "tools": [
+            "higgsfield_generate", "higgsfield_job_status",
+            "higgsfield_ip_check", "higgsfield_inspiration",
+            "higgsfield_element", "higgsfield_soul_id",
+            "higgsfield_balance",
         ],
         "includes": []
     },

@@ -5,10 +5,6 @@ description: |
   Loaded by soul-id-agent sub-agent for Soul ID creation and management.
 ---
 
-# Soul ID Skill
-
-Create trained face identity models (Soul IDs) from photos, then generate images with them.
-
 ## What is a Soul ID?
 
 A Soul ID (internally "custom reference") is a trained identity model. You upload 1-100 face photos, the backend trains a model, and then you can generate new images that preserve that person's likeness using Soul 2.0.
@@ -25,20 +21,24 @@ Do **not** run this path if the user provided photos, an Instagram handle, or an
 
 1. **Seed portrait** — generate one frontal portrait of the persona via `soul_v2` (preferred for editorial / fashion look) or `nano_banana_2` (preferred for photorealistic realism). In the prompt include: approximate age, skin tone, hair color / texture / length, eye color, face shape, build, one simple outfit, neutral background, natural light, authentic skin texture. Aspect ratio `3:4`.
 
-   ```bash
-   higgsfieldcli generate --json '{"model":"soul_v2","prompt":"<detailed portrait description>","aspect_ratio":"3:4","quality":"1080p"}'
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"soul_v2","prompt":"<detailed portrait description>","aspect_ratio":"3:4","quality":"1080p"}
+     ]
+   })
    ```
 
 2. **Poll the seed** until completed — the job id is needed for the next step:
 
-   ```bash
-   higgsfieldcli status --job-id <SEED_JOB_ID> --poll
+   ```json
+   higgsfield_job_status({"job_ids": ["<SEED_JOB_ID>"]})
    ```
 
 2.5. **Wait for seed to complete (mandatory gate before augmentation batch)** — before firing the augmentation batch in step 3, confirm the seed job from step 2 has reached `completed`:
 
-   ```bash
-   higgsfieldcli status --job-id "$SEED_JOB_ID" --poll
+   ```json
+   higgsfield_job_status({"job_ids": ["<SEED_JOB_ID>"]})
    ```
 
    **Why this step is not optional.** Step 3 fires 4 `nano_banana_2` augmentations that each reference the seed job as input. If the batch is submitted while the seed is still `in_progress`, the reference cannot be resolved and all 4 augmentation jobs fail. Skipping this gate is the most common cause of silent bootstrap failures.
@@ -79,8 +79,14 @@ Do **not** run this path if the user provided photos, an Instagram handle, or an
 
 6. **Train the Soul ID** from the local directory:
 
-   ```bash
-   higgsfieldcli soul-id create --dir /tmp/soul-bootstrap-<slug> --name "<persona-name>" --poll
+   ```json
+   higgsfield_soul_id({
+     "action": "create",
+     "dir": "/tmp/soul-bootstrap-<slug>/",
+     "name": "<persona-name>"
+     // poll: false (default) — training takes up to 30 min; check back via action=status
+   })
+   // → { reference_id, status: "queued"|"in_progress"|..., images_used, uploads: [...] }
    ```
 
    Capture the returned `reference_id` — this is the persona's Soul ID.
@@ -89,24 +95,27 @@ Do **not** run this path if the user provided photos, an Instagram handle, or an
 
    **Reuse the seed.png from step 5.** It is a clean frontal portrait already in the training set — do not generate a separate verification/confirmation image just to upload it. Any extra generation here is wasted work.
 
-   ```bash
-   # Upload the seed portrait (already downloaded in step 5) with IP check
-   UPLOAD=$(higgsfieldcli upload --file /tmp/soul-bootstrap-<slug>/seed.png --force-ip-check)
-   UPLOAD_ID=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-   UPLOAD_URL=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['url'])")
-
-   # Create the element as an ip-verified character
-   higgsfieldcli element create --category character_ip_verified --name "<persona-name>" \
-     --description "<short visual description>" \
-     --media "id=$UPLOAD_ID;url=$UPLOAD_URL;type=media_input"
+   Option A — register an element from the seed job directly (no re-upload needed):
+   ```json
+   higgsfield_element({
+     "action": "create",
+     "category": "character",
+     "name": "<persona-name>",
+     "medias": [{"id": "<SEED_JOB_ID>", "url": "<SEED_URL>", "type": "text2image_soul_v2_job"}]
+   })
    ```
+   Before using a job reference in a seedance_2_0 generation, also call `higgsfield_ip_check({"job_ids":["<SEED_JOB_ID>"]})` to verify the upstream job is IP-clean.
 
-   Use the returned element id in subsequent seedance prompts via `<<<ELEMENT_ID>>>`.
+   Option B (single reuse, no element): skip element creation and pass `{"id":"<SEED_JOB_ID>","type":"text2image_soul_v2_job"}` directly in seedance `medias`.
 
 8. **(Optional) Verify** by generating one test image via the new Soul ID. Skip this unless you have reason to doubt the training — the seed + 4 augmentations already confirm the face. If you do verify, the test generation is for visual inspection only; do not download, upload, or reuse its output — step 7 already handled the element:
 
-   ```bash
-   higgsfieldcli generate --json '{"model":"text2image_soul_v2","prompt":"<scene matching the target style>","aspect_ratio":"3:4","quality":"1080p","soul_id":"<REFERENCE_ID>"}'
+   ```json
+   higgsfield_generate({
+     "requests": [
+       {"model":"text2image_soul_v2","prompt":"<scene matching the target style>","aspect_ratio":"3:4","quality":"1080p","soul_id":"<REFERENCE_ID>"}
+     ]
+   })
    ```
 
 **After bootstrap completes** — downstream image generations use `soul_id` directly on `text2image_soul_v2`; downstream video generations use the element id via `<<<id>>>` in `seedance_2_0` prompts. The trained Soul ID and the element persist across sessions, so one bootstrap run covers an unlimited number of future generations of the same persona.
@@ -167,55 +176,50 @@ curl -L -o /tmp/soul-id-USERNAME/02.jpg "URL_2"
 
 ### 3. Create Soul ID
 
-```bash
-higgsfieldcli soul-id create \
-  --dir /tmp/soul-id-USERNAME \
-  --name "Person Name" \
-  --poll
-```
+Use the `higgsfield_soul_id` tool with `action: "create"`. It handles the full pipeline internally:
 
-This command:
-
-1. Discovers all images (jpg, png, webp, heic) in the directory
-2. Batch-uploads them to the Higgsfield backend
+1. Discovers all supported images (`.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.heif`) in the directory
+2. Batch-uploads them to the Higgsfield backend (via `/media/batch` + presigned S3 PUT + confirm)
 3. Creates a Soul 2.0 custom reference
-4. Polls until training completes (up to 30 minutes)
+4. Returns immediately with `reference_id` + current `status` (training continues in background, up to 30 min); pass `poll: true` to wait
 
-Output includes `reference_id` — save this for generation.
-
-The `--poll` flag blocks until training completes (up to 30 minutes):
-
-```bash
-higgsfieldcli soul-id create \
-  --dir /tmp/soul-id-USERNAME \
-  --name "Person Name" \
-  --poll
+```json
+higgsfield_soul_id({
+  "action": "create",
+  "dir": "/tmp/soul-id-USERNAME/",
+  "name": "Person Name"
+})
+// → { reference_id, name, status, images_used, uploads: [{file, media_id}, ...] }
 ```
+
+Save the returned `reference_id` for generation.
 
 ### 4. Generate with Soul ID
 
 Once the Soul ID status is `completed`, use it with `text2image_soul_v2`:
 
-```bash
-higgsfieldcli generate --json '[{"model":"text2image_soul_v2","prompt":"a portrait photo in a garden, soft natural lighting","soul_id":"REFERENCE_ID","soul_strength":1.0,"aspect_ratio":"3:4","batch_size":4}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"text2image_soul_v2","prompt":"a portrait photo in a garden, soft natural lighting","soul_id":"<REFERENCE_ID>","soul_strength":1.0,"aspect_ratio":"3:4","batch_size":4}
+  ]
+})
 ```
 
-The CLI returns a `created` line immediately with `job_set_id`, `job_set_type`, `job_ids`. Poll via `higgsfieldcli status --job-id <id> --poll` only if the result is needed downstream.
+Returns `{"job_ids": [...]}` immediately. Poll via `higgsfield_job_status({"job_ids":["<id>"]})` only if the result is needed downstream.
 
 ### 5. Management Commands
 
-```bash
-# List Soul IDs
-higgsfieldcli soul-id list
+```json
+// List Soul IDs
+higgsfield_soul_id({"action": "list", "type": "soul_2", "size": 20})
+// Filter: add status ("completed", "in_progress", "queued", "failed", "not_ready") or search (substring on name)
 
-# List only completed Soul IDs
-higgsfieldcli soul-id list --status completed
+// Check one (optionally wait)
+higgsfield_soul_id({"action": "status", "reference_id": "<REFERENCE_ID>", "poll": true})
 
-# Check status of a specific Soul ID
-higgsfieldcli soul-id status --id "REFERENCE_ID"
-
-# Delete a Soul ID
-higgsfieldcli soul-id delete --id "REFERENCE_ID"
+// Delete
+higgsfield_soul_id({"action": "delete", "reference_id": "<REFERENCE_ID>"})
 ```
 
 ## Full Example: Instagram to Soul 2.0 Generation
@@ -232,18 +236,26 @@ MEDIAS=$(instagramcli user medias --user-id "$USER_ID" --flat)
 mkdir -p /tmp/soul-id-alexconsani
 # Parse and download top face images from the media response
 
-# 4. Create Soul ID (--poll blocks until training completes)
-SOUL=$(higgsfieldcli soul-id create \
-  --dir /tmp/soul-id-alexconsani \
-  --name "Alex Consani" \
-  --poll)
-REF_ID=$(echo "$SOUL" | python3 -c "import sys,json; print(json.load(sys.stdin)['reference_id'])")
+# 4. Train Soul ID — returns {reference_id} immediately; training continues
+#    for up to 30 min. Pass poll=true to block until terminal.
+```
 
-# 5. Generate with Soul 2.0 — returns created line immediately (fire-and-forget)
-CREATED=$(higgsfieldcli generate --json "[{\"model\":\"text2image_soul_v2\",\"prompt\":\"editorial fashion photo, studio lighting, white background\",\"soul_id\":\"$REF_ID\",\"batch_size\":4}]")
-JOB_ID=$(echo "$CREATED" | python3 -c "import sys,json; print(json.loads(sys.stdin.read().splitlines()[0])['job_ids'][0])")
-# Poll only if result is needed downstream:
-# higgsfieldcli status --job-id "$JOB_ID" --poll
+```json
+higgsfield_soul_id({
+  "action": "create",
+  "dir": "/tmp/soul-id-alexconsani/",
+  "name": "Alex Consani"
+})
+// → { "reference_id": "<REFERENCE_ID>", "status": "queued", ... }
+
+// 5. Generate with Soul 2.0 — returns job_ids immediately (fire-and-forget)
+higgsfield_generate({
+  "requests": [
+    {"model":"text2image_soul_v2","prompt":"editorial fashion photo, studio lighting, white background","soul_id":"<REFERENCE_ID>","batch_size":4}
+  ]
+})
+// Poll only if result is needed downstream:
+// higgsfield_job_status({"job_ids":["<JOB_ID>"]})
 ```
 
 ## Parameters Reference

@@ -5,10 +5,6 @@ description: |
   Loaded by recreate-agent for the full video adaptation pipeline (Case 1/2/3 → Seedance).
 ---
 
-# Video Adaptation Pipeline
-
-Canonical home of the adaptation workflow. Loaded only by `recreate-agent`. Never by the research-side.
-
 ## HARD LOCK — user-provided character photo
 
 Photo is the terminal identity reference for the session. Uploaded once with `--force-ip-check`. Reused as `element create --category character --media "id=<ID>;type=media_input"`. Never regenerated.
@@ -220,24 +216,30 @@ Replace every `<<image_N>>` with `<<<ELEMENT_ID>>>` (triple brackets, real UUID)
 
 One job. Prompt = `adapted_concept` (byte-identical after D.0 substitution). Duration = 15.
 
-```bash
-higgsfieldcli generate --json '[{"model":"seedance_2_0","prompt":"<adapted_concept>","generate_audio":true,"duration":15,"aspect_ratio":"9:16"}]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<adapted_concept>","generate_audio":true,"duration":15,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 ### >17s flow
 
 N-item batch array, one job per segment, each with its segment's duration.
 
-```bash
-higgsfieldcli generate --json '[
-  {"model":"seedance_2_0","prompt":"<segments[0].scenes>","generate_audio":true,"duration":<segments[0].duration>,"aspect_ratio":"9:16"},
-  {"model":"seedance_2_0","prompt":"<segments[1].scenes>","generate_audio":true,"duration":<segments[1].duration>,"aspect_ratio":"9:16"}
-]'
+```json
+higgsfield_generate({
+  "requests": [
+    {"model":"seedance_2_0","prompt":"<segments[0].scenes>","generate_audio":true,"duration":<segments[0].duration>,"aspect_ratio":"9:16"},
+    {"model":"seedance_2_0","prompt":"<segments[1].scenes>","generate_audio":true,"duration":<segments[1].duration>,"aspect_ratio":"9:16"}
+  ]
+})
 ```
 
 ### Submission protocol
 
-1. **Print first, fire second.** Emit the exact `generate --json '[...]'` payload in the report before executing it.
+1. **Print first, fire second.** Emit the exact `higgsfield_generate({"requests": [...]})` payload in the report before executing it.
 2. **Retry = identical bytes.** On rate-limit, network error, or any non-2xx: resubmit the same printed payload. Never rebuild.
 3. **Hand-off = hand the artifact.** Pass the printed JSON, not the plan.
 
